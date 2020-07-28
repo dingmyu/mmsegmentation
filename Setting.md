@@ -1,0 +1,21 @@
+export PATH=/mnt/lustre/share/gcc/gcc-5.4/bin/:$PATH
+export PATH=/mnt/lustre/share/cmake-3.11.0-Linux-x86_64/bin:$PATH
+export LD_LIBRARY_PATH=/mnt/lustre/share/cuda-10.1/lib64:$LD_LIBRARY_PATH
+export PATH=/mnt/lustre/share/cuda-10.1/bin:$PATH
+export CUDA_HOME=/mnt/lustre/share/cuda-10.1/:CUDA_HOME
+
+conda create -n open-mmlab python=3.7 -y
+conda activate open-mmlab
+
+conda install pytorch=1.4.0 torchvision cudatoolkit=10.1 -c pytorch
+
+pip install mmcv-full==latest+torch1.4.0+cu101 -f https://openmmlab.oss-accelerate.aliyuncs.com/mmcv/dist/index.html
+cd mmsegmentation
+pip install -e .
+
+
+ps aux | grep hr18 | awk '{print $2}' | xargs kill -9
+ps aux | grep hrnet | awk '{print $2}' | xargs kill -9
+
+scp -P 9001 -r tiger@10.148.57.22:/opt/tiger/uslabcv/dingmingyu/dataset/foru/ .
+hdfs dfs -copyFromLocal ./foru hdfs:///home/byte_uslab_cvg/user/dingmingyu/dataset/
