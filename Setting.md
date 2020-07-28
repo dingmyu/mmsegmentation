@@ -14,8 +14,22 @@ cd mmsegmentation
 pip install -e .
 
 
+hdfs dfs -copyFromLocal ./foru hdfs:///home/byte_uslab_cvg/user/dingmingyu/dataset/
 ps aux | grep hr18 | awk '{print $2}' | xargs kill -9
 ps aux | grep hrnet | awk '{print $2}' | xargs kill -9
 
+
+
 scp -P 9001 -r tiger@10.148.57.22:/opt/tiger/uslabcv/dingmingyu/dataset/foru/ .
-hdfs dfs -copyFromLocal ./foru hdfs:///home/byte_uslab_cvg/user/dingmingyu/dataset/
+cd foru
+unzip gt,
+unzip left,
+
+git clone https://github.com/dingmyu/mmsegmentation.git
+cd mmsegmentation
+pip install -e .
+mkdir data
+cd data
+ln -s /opt/tiger/uslabcv/dingmingyu/foru cityscapes
+python3 tools/convert_datasets/cityscapes.py data/cityscapes --nproc 8
+mv foru/hrnetv2_w18-00eb2006.pth ~/.cache/torch/checkpoint/
