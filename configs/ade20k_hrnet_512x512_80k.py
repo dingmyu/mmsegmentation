@@ -2,36 +2,31 @@
 norm_cfg = dict(type='SyncBN', requires_grad=True)
 model = dict(
     type='EncoderDecoder',
-    pretrained='open-mmlab://msra/hrnetv2_w18',
+    pretrained=None,  # 'open-mmlab://msra/hrnetv2_w18',
     backbone=dict(
-        type='HRNet',
-        norm_cfg=norm_cfg,
-        norm_eval=False,
-        extra=dict(
-            stage1=dict(
-                num_modules=1,
-                num_branches=1,
-                block='BOTTLENECK',
-                num_blocks=(4, ),
-                num_channels=(64, )),
-            stage2=dict(
-                num_modules=1,
-                num_branches=2,
-                block='BASIC',
-                num_blocks=(4, 4),
-                num_channels=(18, 36)),
-            stage3=dict(
-                num_modules=4,
-                num_branches=3,
-                block='BASIC',
-                num_blocks=(4, 4, 4),
-                num_channels=(18, 36, 72)),
-            stage4=dict(
-                num_modules=3,
-                num_branches=4,
-                block='BASIC',
-                num_blocks=(4, 4, 4, 4),
-                num_channels=(18, 36, 72, 144)))),
+        type='HighResolutionNetSync',
+        active_fn='nn.ReLU',
+        num_classes=1000,
+        input_channel=64,
+        last_channel=2048,
+        width_mult=1.0,
+        round_nearest=2,
+        input_stride=4,
+        bn_momentum=0.1,
+        expand_ratio=4,
+        kernel_sizes=[3, 5, 7],
+        inverted_residual_setting=[
+            [1, [2], [64]],
+            [2, [4, 4], [18, 36]],
+            [3, [4, 4, 4], [18, 36, 72]],
+            [3, [4, 4, 4], [18, 36, 72]],
+            [3, [4, 4, 4], [18, 36, 72]],
+            [3, [4, 4, 4], [18, 36, 72]],
+            [4, [4, 4, 4, 4], [18, 36, 72, 144]],
+            [4, [4, 4, 4, 4], [18, 36, 72, 144]],
+            [4, [4, 4, 4, 4], [18, 36, 72, 144]]
+        ],
+        head_channels=[18, 36, 72, 144]),
     decode_head=dict(
         type='FCNHead',
         in_channels=[18, 36, 72, 144],
@@ -42,7 +37,7 @@ model = dict(
         num_convs=1,
         concat_input=False,
         dropout_ratio=-1,
-        num_classes=19,
+        num_classes=150,
         norm_cfg=norm_cfg,
         align_corners=False,
         loss_decode=dict(
@@ -53,16 +48,16 @@ test_cfg = dict(mode='whole')
 
 
 
-# dataset settings
-dataset_type = 'CityscapesDataset'
-data_root = 'data/cityscapes/'
+# dataset settings --------------------------------------------------------------------------------
+dataset_type = 'ADE20KDataset'
+data_root = 'data/ade/ADEChallengeData2016'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
-crop_size = (512, 1024)
+crop_size = (512, 512)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
-    dict(type='LoadAnnotations'),
-    dict(type='Resize', img_scale=(2048, 1024), ratio_range=(0.5, 2.0)),
+    dict(type='LoadAnnotations', reduce_zero_label=True),
+    dict(type='Resize', img_scale=(2048, 512), ratio_range=(0.5, 2.0)),
     dict(type='RandomCrop', crop_size=crop_size, cat_max_ratio=0.75),
     dict(type='RandomFlip', flip_ratio=0.5),
     dict(type='PhotoMetricDistortion'),
@@ -75,7 +70,7 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(2048, 1024),
+        img_scale=(2048, 512),
         # img_ratios=[0.5, 0.75, 1.0, 1.25, 1.5, 1.75],
         flip=False,
         transforms=[
@@ -87,37 +82,36 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=2 * 2,
-    workers_per_gpu=2 * 2,
+    samples_per_gpu=16,
+    workers_per_gpu=8,
     train=dict(
         type=dataset_type,
         data_root=data_root,
-        img_dir='leftImg8bit/train',
-        ann_dir='gtFine/train',
+        img_dir='images/training',
+        ann_dir='annotations/training',
         pipeline=train_pipeline),
     val=dict(
         type=dataset_type,
         data_root=data_root,
-        img_dir='leftImg8bit/val',
-        ann_dir='gtFine/val',
+        img_dir='images/validation',
+        ann_dir='annotations/validation',
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
         data_root=data_root,
-        img_dir='leftImg8bit/val',
-        ann_dir='gtFine/val',
+        img_dir='images/validation',
+        ann_dir='annotations/validation',
         pipeline=test_pipeline))
 
 # optimizer
-optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0005)
+optimizer = dict(type='SGD', lr=0.04, momentum=0.9, weight_decay=0.0005)
 optimizer_config = dict()
 # learning policy
 lr_config = dict(policy='poly', power=0.9, min_lr=1e-4, by_epoch=False)
 # runtime settings
-total_iters = 40000
-checkpoint_config = dict(by_epoch=False, interval=4000)
-evaluation = dict(interval=4000, metric='mIoU')
-
+total_iters = 80000
+checkpoint_config = dict(by_epoch=False, interval=10000)
+evaluation = dict(interval=10000, metric='mIoU')
 
 
 # yapf:disable

@@ -2,10 +2,10 @@
 norm_cfg = dict(type='SyncBN', requires_grad=True)
 model = dict(
     type='EncoderDecoder',
-    pretrained='open-mmlab://msra/hrnetv2_w18',
+    pretrained=None, #'open-mmlab://msra/hrnetv2_w18',
     backbone=dict(
-        type='HighResolutionNet',
-        active_fn='nn.ReLU6',
+        type='HighResolutionNetSync',
+        active_fn='nn.ReLU',
         num_classes=1000,
         input_channel=64,
         last_channel=2048,
@@ -16,8 +16,7 @@ model = dict(
         expand_ratio=4,
         kernel_sizes=[3, 5, 7],
         inverted_residual_setting=[
-            [1, [3], [64]],
-            [1, [1], [18]],
+            [1, [2], [64]],
             [2, [4, 4], [18, 36]],
             [3, [4, 4, 4], [18, 36, 72]],
             [3, [4, 4, 4], [18, 36, 72]],
@@ -83,8 +82,8 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=2 * 2,
-    workers_per_gpu=2 * 2,
+    samples_per_gpu=8,
+    workers_per_gpu=8,
     train=dict(
         type=dataset_type,
         data_root=data_root,
@@ -105,14 +104,14 @@ data = dict(
         pipeline=test_pipeline))
 
 # optimizer
-optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0005)
+optimizer = dict(type='SGD', lr=0.04, momentum=0.9, weight_decay=0.0005)
 optimizer_config = dict()
 # learning policy
 lr_config = dict(policy='poly', power=0.9, min_lr=1e-4, by_epoch=False)
 # runtime settings
 total_iters = 40000
-checkpoint_config = dict(by_epoch=False, interval=4000)
-evaluation = dict(interval=4000, metric='mIoU')
+checkpoint_config = dict(by_epoch=False, interval=10000)
+evaluation = dict(interval=10000, metric='mIoU')
 
 
 

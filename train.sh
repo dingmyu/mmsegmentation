@@ -1,4 +1,4 @@
-#CUDA_VISIBLE_DEVICES=2,3 PORT=9000 ./tools/dist_train.sh  configs/hrnet/mingyu_fcn_hr18_512x512_80k_ade20k.py 2 --work_dir ./output/mingyu_fcn_hr18_512x512_160k_ade20k
-#CUDA_VISIBLE_DEVICES=0 PORT=9002 ./tools/dist_train.sh  configs/hrnet/mingyu_fcn_hrnet_512x512_80k_ade20k.py 1 --work_dir ./output/mingyu_fcn_hrnet_512x512_80k_ade20k
-#CUDA_VISIBLE_DEVICES=1 PORT=9003 ./tools/dist_train.sh  configs/hrnet/mingyu_fcn_hrnet_sync_512x512_80k_ade20k.py 1 --work_dir ./output/mingyu_fcn_hrnet_sync_512x512_80k_ade20k
-CUDA_VISIBLE_DEVICES=0,1,2,3 PORT=9000 ./tools/dist_train.sh  configs/hrnet/mingyu_myhrnet_512x1024_40k_cityscapes.py 4 --work_dir ./output/mingyu_myhrnet_512x1024_40k_cityscapes
+#CUDA_VISIBLE_DEVICES=0,1,2,3 PORT=9000 ./tools/dist_train.sh  configs/hrnet/cityscapes_fcn_hr18_512x1024_40k.py 4 --work_dir ./output/cityscapes_hr18
+#CUDA_VISIBLE_DEVICES=0,1,2,3 PORT=9000 ./tools/dist_train.sh  configs/hrnet/ade20k_fcn_hr18_512x512_80k.py 4 --work_dir ./output/ade20k_hr18
+#CUDA_VISIBLE_DEVICES=0,1,2,3 PORT=9000 ./tools/dist_train.sh  configs/ade20k_hrnet_512x512_80k.py 4 --work_dir ./output/mingyu_ade20k
+#CUDA_VISIBLE_DEVICES=0,1,2,3 PORT=9000 ./tools/dist_train.sh  configs/cityscapes_hrnet_512x1024_40k.py 4 --work_dir ./output/mingyu_cityscapes

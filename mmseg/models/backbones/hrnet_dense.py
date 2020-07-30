@@ -116,7 +116,7 @@ class ParallelModule(nn.Module):
                  expand_ratio=6,
                  kernel_sizes=[3, 5, 7],
                  batch_norm_kwargs=None,
-                 active_fn=get_active_fn('nn.ReLU6')):
+                 active_fn=get_active_fn('nn.ReLU')):
         super(ParallelModule, self).__init__()
 
         self.num_branches = num_branches
@@ -180,7 +180,7 @@ class FuseModule(nn.Module):
                  expand_ratio=6,
                  kernel_sizes=[3, 5, 7],
                  batch_norm_kwargs=None,
-                 active_fn=get_active_fn('nn.ReLU6')):
+                 active_fn=get_active_fn('nn.ReLU')):
         super(FuseModule, self).__init__()
 
         self.out_branches = out_branches
@@ -223,21 +223,21 @@ class FuseModule(nn.Module):
                 else:
                     downsamples = []
                     for k in range(i - j):
-                        if k == i - j - 1:
+                        if k == 0:
                             downsamples.append(
                                 block(
-                                    out_channels[j + k],
-                                    out_channels[i],
+                                    in_channels[j],
+                                    out_channels[j + 1],
                                     expand_ratio=self.expand_ratio,
                                     kernel_sizes=self.kernel_sizes,
                                     stride=2,
                                     batch_norm_kwargs=self.batch_norm_kwargs,
                                     active_fn=self.active_fn))
-                        elif k == 0:
+                        elif k == i - j - 1:
                             downsamples.append(
                                 block(
-                                    in_channels[j],
-                                    out_channels[j + 1],
+                                    out_channels[j + k],
+                                    out_channels[i],
                                     expand_ratio=self.expand_ratio,
                                     kernel_sizes=self.kernel_sizes,
                                     stride=2,
@@ -284,7 +284,7 @@ class HeadModule(nn.Module):
                  expand_ratio=6,
                  kernel_sizes=[3, 5, 7],
                  batch_norm_kwargs=None,
-                 active_fn=get_active_fn('nn.ReLU6')):
+                 active_fn=get_active_fn('nn.ReLU')):
         super(HeadModule, self).__init__()
 
         self.active_fn = active_fn
@@ -369,7 +369,7 @@ class HighResolutionNet(nn.Module):
                  bn_momentum=0.1,
                  bn_epsilon=1e-5,
                  dropout_ratio=0.2,
-                 active_fn='nn.ReLU6',
+                 active_fn='nn.ReLU',
                  block='InvertedResidualChannels',
                  width_mult=1.0,
                  round_nearest=8,
@@ -418,31 +418,20 @@ class HighResolutionNet(nn.Module):
 
         features = []
         for index in range(len(inverted_residual_setting) - 1):
-            features.append(
-                ParallelModule(
-                    num_branches=inverted_residual_setting[index][0],
-                    num_blocks=inverted_residual_setting[index][1],
-                    num_channels=inverted_residual_setting[index][2],
-                    block=self.block,
-                    expand_ratio=self.expand_ratio,
-                    kernel_sizes=self.kernel_sizes,
-                    batch_norm_kwargs=self.batch_norm_kwargs,
-                    active_fn=self.active_fn)
-            )
+            in_branches = 1 if index == 0 else inverted_residual_setting[index - 1][0]
+            in_channels = [self.input_channel] if index == 0 else inverted_residual_setting[index - 1][-1]
             features.append(
                 FuseModule(
-                    in_branches=inverted_residual_setting[index][0],
-                    out_branches=inverted_residual_setting[index + 1][0],
-                    in_channels=inverted_residual_setting[index][-1],
-                    out_channels=inverted_residual_setting[index + 1][-1],
+                    in_branches=in_branches,
+                    out_branches=inverted_residual_setting[index][0],
+                    in_channels=in_channels,
+                    out_channels=inverted_residual_setting[index][-1],
                     block=self.block,
                     expand_ratio=self.expand_ratio,
                     kernel_sizes=self.kernel_sizes,
                     batch_norm_kwargs=self.batch_norm_kwargs,
                     active_fn=self.active_fn)
             )
-
-        for index in range(len(inverted_residual_setting) - 1, len(inverted_residual_setting)):
             features.append(
                 ParallelModule(
                     num_branches=inverted_residual_setting[index][0],

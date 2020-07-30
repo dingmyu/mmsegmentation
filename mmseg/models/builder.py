@@ -1,5 +1,8 @@
 from mmcv.utils import Registry, build_from_cfg
 from torch import nn
+from thop import profile
+import torch
+from mmseg.utils import collect_env, get_root_logger
 
 BACKBONES = Registry('backbone')
 NECKS = Registry('neck')
@@ -33,7 +36,13 @@ def build(cfg, registry, default_args=None):
 
 def build_backbone(cfg):
     """Build backbone."""
-    return build(cfg, BACKBONES)
+    backbone = build(cfg, BACKBONES)
+    # TODO(Mingyu): Get macs and params
+    # input = torch.randn(1, 3, 224, 224).cuda()
+    # macs, params = profile(backbone.cuda(), inputs=(input,))
+    # logger = get_root_logger()
+    # logger.info('macs: {}, params {}'.format(macs, params))
+    return backbone
 
 
 def build_neck(cfg):

@@ -122,7 +122,7 @@ class ParallelModule(nn.Module):
                  expand_ratio=6,
                  kernel_sizes=[3, 5, 7],
                  batch_norm_kwargs=None,
-                 active_fn=get_active_fn('nn.ReLU6')):
+                 active_fn=get_active_fn('nn.ReLU')):
         super(ParallelModule, self).__init__()
 
         self.num_branches = num_branches
@@ -186,7 +186,7 @@ class FuseModule(nn.Module):
                  expand_ratio=6,
                  kernel_sizes=[3, 5, 7],
                  batch_norm_kwargs=None,
-                 active_fn=get_active_fn('nn.ReLU6')):
+                 active_fn=get_active_fn('nn.ReLU')):
         super(FuseModule, self).__init__()
 
         self.out_branches = out_branches
@@ -229,21 +229,21 @@ class FuseModule(nn.Module):
                 else:
                     downsamples = []
                     for k in range(i - j):
-                        if k == i - j - 1:
+                        if k == 0:
                             downsamples.append(
                                 block(
-                                    out_channels[j + k],
-                                    out_channels[i],
+                                    in_channels[j],
+                                    out_channels[j + 1],
                                     expand_ratio=self.expand_ratio,
                                     kernel_sizes=self.kernel_sizes,
                                     stride=2,
                                     batch_norm_kwargs=self.batch_norm_kwargs,
                                     active_fn=self.active_fn))
-                        elif k == 0:
+                        elif k == i - j - 1:
                             downsamples.append(
                                 block(
-                                    in_channels[j],
-                                    out_channels[j + 1],
+                                    out_channels[j + k],
+                                    out_channels[i],
                                     expand_ratio=self.expand_ratio,
                                     kernel_sizes=self.kernel_sizes,
                                     stride=2,
@@ -280,89 +280,6 @@ class FuseModule(nn.Module):
             x_fuse.append(self.relu(y))  # TODO(Mingyu): Use ReLU?
         return x_fuse
 
-
-class HeadModule(nn.Module):
-    def __init__(self,
-                 pre_stage_channels=[16, 32, 64, 128],
-                 head_channels=None,  # [32, 64, 128, 256],
-                 last_channel=1024,
-                 avg_pool_size=7,
-                 block=get_block_wrapper('InvertedResidualChannels'),
-                 expand_ratio=6,
-                 kernel_sizes=[3, 5, 7],
-                 batch_norm_kwargs=None,
-                 active_fn=get_active_fn('nn.ReLU6')):
-        super(HeadModule, self).__init__()
-
-        self.active_fn = active_fn
-        self.batch_norm_kwargs = batch_norm_kwargs
-        self.expand_ratio = expand_ratio
-        self.kernel_sizes = kernel_sizes
-        self.avg_pool_size = avg_pool_size
-
-        # Increasing the #channels on each resolution
-        if head_channels:
-            incre_modules = []
-            for i, channels in enumerate(pre_stage_channels):
-                incre_module = block(
-                    pre_stage_channels[i],
-                    head_channels[i],
-                    expand_ratio=self.expand_ratio,
-                    kernel_sizes=self.kernel_sizes,
-                    stride=1,
-                    batch_norm_kwargs=self.batch_norm_kwargs,
-                    active_fn=self.active_fn)
-                incre_modules.append(incre_module)
-            self.incre_modules = nn.ModuleList(incre_modules)
-        else:
-            head_channels = pre_stage_channels
-            self.incre_modules = []
-
-        # downsampling modules
-        downsamp_modules = []
-        for i in range(len(pre_stage_channels) - 1):
-            downsamp_module = block(
-                head_channels[i],
-                head_channels[i + 1],
-                expand_ratio=self.expand_ratio,
-                kernel_sizes=self.kernel_sizes,
-                stride=2,
-                batch_norm_kwargs=self.batch_norm_kwargs,
-                active_fn=self.active_fn)
-            downsamp_modules.append(downsamp_module)
-        self.downsamp_modules = nn.ModuleList(downsamp_modules)
-
-        self.final_layer = ConvBNReLU(
-            head_channels[-1],
-            last_channel,
-            kernel_size=1,
-            batch_norm_kwargs=batch_norm_kwargs,
-            active_fn=active_fn)
-
-    def forward(self, x_list):
-        if self.incre_modules:
-            x = self.incre_modules[0](x_list[0])
-            for i in range(len(self.downsamp_modules)):
-                x = self.incre_modules[i + 1](x_list[i + 1]) \
-                    + self.downsamp_modules[i](x)
-        else:
-            x = x_list[0]
-            for i in range(len(self.downsamp_modules)):
-                x = x_list[i + 1] \
-                    + self.downsamp_modules[i](x)
-
-        x = self.final_layer(x)
-
-        # assert x.size()[2] == self.avg_pool_size
-
-        # if torch._C._get_tracing_state():
-        #     x = x.flatten(start_dim=2).mean(dim=2)
-        # else:
-        #     x = F.avg_pool2d(x, kernel_size=x.size()
-        #                      [2:]).view(x.size(0), -1)
-        return x
-
-
 @BACKBONES.register_module()
 class HighResolutionNetSync(nn.Module):
 
@@ -376,7 +293,7 @@ class HighResolutionNetSync(nn.Module):
                  bn_momentum=0.1,
                  bn_epsilon=1e-5,
                  dropout_ratio=0.2,
-                 active_fn='nn.ReLU6',
+                 active_fn='nn.ReLU',
                  block='InvertedResidualChannels',
                  width_mult=1.0,
                  round_nearest=8,
@@ -425,31 +342,20 @@ class HighResolutionNetSync(nn.Module):
 
         features = []
         for index in range(len(inverted_residual_setting) - 1):
-            features.append(
-                ParallelModule(
-                    num_branches=inverted_residual_setting[index][0],
-                    num_blocks=inverted_residual_setting[index][1],
-                    num_channels=inverted_residual_setting[index][2],
-                    block=self.block,
-                    expand_ratio=self.expand_ratio,
-                    kernel_sizes=self.kernel_sizes,
-                    batch_norm_kwargs=self.batch_norm_kwargs,
-                    active_fn=self.active_fn)
-            )
+            in_branches = 1 if index == 0 else inverted_residual_setting[index - 1][0]
+            in_channels = [self.input_channel] if index == 0 else inverted_residual_setting[index - 1][-1]
             features.append(
                 FuseModule(
-                    in_branches=inverted_residual_setting[index][0],
-                    out_branches=inverted_residual_setting[index + 1][0],
-                    in_channels=inverted_residual_setting[index][-1],
-                    out_channels=inverted_residual_setting[index + 1][-1],
+                    in_branches=in_branches,
+                    out_branches=inverted_residual_setting[index][0],
+                    in_channels=in_channels,
+                    out_channels=inverted_residual_setting[index][-1],
                     block=self.block,
                     expand_ratio=self.expand_ratio,
                     kernel_sizes=self.kernel_sizes,
                     batch_norm_kwargs=self.batch_norm_kwargs,
                     active_fn=self.active_fn)
             )
-
-        for index in range(len(inverted_residual_setting) - 1, len(inverted_residual_setting)):
             features.append(
                 ParallelModule(
                     num_branches=inverted_residual_setting[index][0],
@@ -462,23 +368,7 @@ class HighResolutionNetSync(nn.Module):
                     active_fn=self.active_fn)
             )
 
-        # features.append(HeadModule(
-        #     pre_stage_channels=inverted_residual_setting[-1][2],
-        #     head_channels=head_channels,
-        #     last_channel=self.last_channel,
-        #     avg_pool_size=self.avg_pool_size,
-        #     block=self.block,
-        #     expand_ratio=self.expand_ratio,
-        #     kernel_sizes=self.kernel_sizes,
-        #     batch_norm_kwargs=self.batch_norm_kwargs,
-        #     active_fn=self.active_fn))
-
         self.features = nn.Sequential(*features)
-
-        # self.classifier = nn.Sequential(
-        #     nn.Dropout(dropout_ratio),
-        #     nn.Linear(last_channel, num_classes),
-        # )
 
         self.init_weights()
 
