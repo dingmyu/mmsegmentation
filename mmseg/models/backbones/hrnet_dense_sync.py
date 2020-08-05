@@ -21,6 +21,21 @@ def get_active_fn(name):
     }[name]
     return active_fn
 
+def _make_divisible(v, divisor, min_value=None):
+    """Make channels divisible to divisor.
+
+    This function is taken from the original tf repo.
+    It ensures that all layers have a channel number that is divisible by 8
+    It can be seen here:
+    https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet/mobilenet.py
+    """
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    # Make sure that round down does not go down by more than 10%.
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
@@ -177,6 +192,18 @@ class ParallelModule(nn.Module):
 
 
 class FuseModule(nn.Module):
+    '''
+        Consistant with HRNET:
+        1. self.use_hr_format, eg: fuse 3 branches, and then add 4th branch from 3rd branch. (default fuse 4 branches)
+        2. use_hr_format, if the channels are the same and stride==1, use None rather than fuse. (default, always fuse)
+        3. self.in_channels_large_stride, use 16->16->64 instead of 16->32->64 for large stride. (default, True)
+        4. The only difference in self.use_hr_format when adding a branch:
+            is we use add 4th branch from 3rd branch, add 5th branch from 4rd branch
+            hrnet use add 4th branch from 3rd branch, add 5th branch from 3rd branch (2 conv layers)
+            actually only affect 1->2 stage
+            can be hard coded: self.use_hr_format = self.use_hr_format and not(out_branches == 2 and in_branches == 1)
+        5. hrnet have a fuse layer at the end, we remove it
+    '''
     def __init__(self,
                  in_branches=1,
                  out_branches=2,
@@ -186,7 +213,8 @@ class FuseModule(nn.Module):
                  expand_ratio=6,
                  kernel_sizes=[3, 5, 7],
                  batch_norm_kwargs=None,
-                 active_fn=get_active_fn('nn.ReLU')):
+                 active_fn=get_active_fn('nn.ReLU'),
+                 use_hr_format=True):
         super(FuseModule, self).__init__()
 
         self.out_branches = out_branches
@@ -195,11 +223,16 @@ class FuseModule(nn.Module):
         self.batch_norm_kwargs = batch_norm_kwargs
         self.expand_ratio = expand_ratio
         self.kernel_sizes = kernel_sizes
+        self.in_channels_large_stride = True
+        self.use_hr_format = use_hr_format and out_branches > in_branches  # w/o self, they are two different flags.
+        self.use_hr_format = self.use_hr_format and not(out_branches == 2 and in_branches == 1)  # see 4.
 
         self.relu = nn.ReLU(False)
+        if use_hr_format:
+            block = ConvBNReLU
 
         fuse_layers = []
-        for i in range(out_branches):
+        for i in range(out_branches if not self.use_hr_format else in_branches):
             fuse_layer = []
             for j in range(in_branches):
                 if j > i:
@@ -211,74 +244,121 @@ class FuseModule(nn.Module):
                             kernel_sizes=self.kernel_sizes,
                             stride=1,
                             batch_norm_kwargs=self.batch_norm_kwargs,
-                            active_fn=self.active_fn),
-                        nn.Upsample(
-                            scale_factor=2 ** (j - i),
-                            mode='bilinear',
-                            align_corners=False)))
+                            active_fn=self.active_fn,
+                            kernel_size=1  # for hr format
+                        ),
+                        nn.Upsample(scale_factor=2 ** (j - i), mode='nearest')))
                 elif j == i:
-                    fuse_layer.append(
-                        block(
-                            in_channels[j],
-                            out_channels[i],
-                            expand_ratio=self.expand_ratio,
-                            kernel_sizes=self.kernel_sizes,
-                            stride=1,
-                            batch_norm_kwargs=self.batch_norm_kwargs,
-                            active_fn=self.active_fn))
+                    if use_hr_format and in_channels[j] == out_channels[i]:
+                        fuse_layer.append(None)
+                    else:
+                        fuse_layer.append(
+                            block(
+                                in_channels[j],
+                                out_channels[i],
+                                expand_ratio=self.expand_ratio,
+                                kernel_sizes=self.kernel_sizes,
+                                stride=1,
+                                batch_norm_kwargs=self.batch_norm_kwargs,
+                                active_fn=self.active_fn,
+                                kernel_size=3  # for hr format
+                            ))
                 else:
                     downsamples = []
                     for k in range(i - j):
-                        if k == 0:
-                            downsamples.append(
-                                block(
-                                    in_channels[j],
-                                    out_channels[j + 1],
-                                    expand_ratio=self.expand_ratio,
-                                    kernel_sizes=self.kernel_sizes,
-                                    stride=2,
-                                    batch_norm_kwargs=self.batch_norm_kwargs,
-                                    active_fn=self.active_fn))
-                        elif k == i - j - 1:
-                            downsamples.append(
-                                block(
-                                    out_channels[j + k],
-                                    out_channels[i],
-                                    expand_ratio=self.expand_ratio,
-                                    kernel_sizes=self.kernel_sizes,
-                                    stride=2,
-                                    batch_norm_kwargs=self.batch_norm_kwargs,
-                                    active_fn=self.active_fn))
+                        if self.in_channels_large_stride:
+                            if k == i - j - 1:
+                                downsamples.append(
+                                    block(
+                                        in_channels[j],
+                                        out_channels[i],
+                                        expand_ratio=self.expand_ratio,
+                                        kernel_sizes=self.kernel_sizes,
+                                        stride=2,
+                                        batch_norm_kwargs=self.batch_norm_kwargs,
+                                        active_fn=self.active_fn,
+                                        kernel_size=3  # for hr format
+                                    ))
+                            else:
+                                downsamples.append(
+                                    block(
+                                        in_channels[j],
+                                        in_channels[j],
+                                        expand_ratio=self.expand_ratio,
+                                        kernel_sizes=self.kernel_sizes,
+                                        stride=2,
+                                        batch_norm_kwargs=self.batch_norm_kwargs,
+                                        active_fn=self.active_fn,
+                                        kernel_size=3  # for hr format
+                                    ))
                         else:
-                            downsamples.append(
-                                block(
-                                    out_channels[j + k],
-                                    out_channels[j + k + 1],
-                                    expand_ratio=self.expand_ratio,
-                                    kernel_sizes=self.kernel_sizes,
-                                    stride=2,
-                                    batch_norm_kwargs=self.batch_norm_kwargs,
-                                    active_fn=self.active_fn))
+                            if k == 0:
+                                downsamples.append(
+                                    block(
+                                        in_channels[j],
+                                        out_channels[j + 1],
+                                        expand_ratio=self.expand_ratio,
+                                        kernel_sizes=self.kernel_sizes,
+                                        stride=2,
+                                        batch_norm_kwargs=self.batch_norm_kwargs,
+                                        active_fn=self.active_fn,
+                                        kernel_size=3  # for hr format
+                                    ))
+                            elif k == i - j - 1:
+                                downsamples.append(
+                                    block(
+                                        out_channels[j + k],
+                                        out_channels[i],
+                                        expand_ratio=self.expand_ratio,
+                                        kernel_sizes=self.kernel_sizes,
+                                        stride=2,
+                                        batch_norm_kwargs=self.batch_norm_kwargs,
+                                        active_fn=self.active_fn,
+                                        kernel_size=3  # for hr format
+                                    ))
+                            else:
+                                downsamples.append(
+                                    block(
+                                        out_channels[j + k],
+                                        out_channels[j + k + 1],
+                                        expand_ratio=self.expand_ratio,
+                                        kernel_sizes=self.kernel_sizes,
+                                        stride=2,
+                                        batch_norm_kwargs=self.batch_norm_kwargs,
+                                        active_fn=self.active_fn,
+                                        kernel_size=3  # for hr format
+                                    ))
                     fuse_layer.append(nn.Sequential(*downsamples))
             fuse_layers.append(nn.ModuleList(fuse_layer))
+        if self.use_hr_format:
+            for branch in range(in_branches, out_branches):
+                fuse_layers.append(nn.ModuleList([block(
+                    out_channels[branch - 1],
+                    out_channels[branch],
+                    expand_ratio=self.expand_ratio,
+                    kernel_sizes=self.kernel_sizes,
+                    stride=2,
+                    batch_norm_kwargs=self.batch_norm_kwargs,
+                    active_fn=self.active_fn,
+                    kernel_size=3  # for hr format
+                )]))
         self.fuse_layers = nn.ModuleList(fuse_layers)
 
     def forward(self, x):
         x_fuse = []
-        for i in range(len(self.fuse_layers)):
-            y = self.fuse_layers[i][0](x[0])
+        for i in range(len(self.fuse_layers) if not self.use_hr_format else self.in_branches):
+            y = self.fuse_layers[i][0](x[0]) if self.fuse_layers[i][0] else x[0]  # hr_format, None
             for j in range(1, self.in_branches):
-                # assert y.size() == self.fuse_layers[i][j](x[j]).size(), '{}.{}'.format(y.size(), self.fuse_layers[i][j](x[j]).size())
-                if j > i:
-                    y = y + resize(
-                        self.fuse_layers[i][j](x[j]),
-                        size=x[i].shape[2:],
-                        mode='bilinear',
-                        align_corners=False)
-                else:
+                if self.fuse_layers[i][j]:
                     y = y + self.fuse_layers[i][j](x[j])
+                else:  # hr_format, None
+                    y = y + x[j]
             x_fuse.append(self.relu(y))  # TODO(Mingyu): Use ReLU?
+        if self.use_hr_format:
+            for branch in range(self.in_branches, self.out_branches):
+                x_fuse.append(self.fuse_layers[branch][0](x_fuse[branch - 1]))
         return x_fuse
+
 
 @BACKBONES.register_module()
 class HighResolutionNetSync(nn.Module):
@@ -300,9 +380,11 @@ class HighResolutionNetSync(nn.Module):
                  expand_ratio=4,
                  kernel_sizes=[3, 5, 7],
                  inverted_residual_setting=None,
-                 ** kwargs):
+                 task='classification',
+                 align_corners=False,
+                 start_with_atomcell=False,
+                 **kwargs):
         super(HighResolutionNetSync, self).__init__()
-
 
         batch_norm_kwargs = {
             'momentum': bn_momentum,
@@ -311,12 +393,16 @@ class HighResolutionNetSync(nn.Module):
 
         self.avg_pool_size = input_size // 32
         self.input_stride = input_stride
-        self.input_channel = input_channel
-        self.last_channel = last_channel
+        self.input_channel = _make_divisible(
+            input_channel * width_mult, round_nearest)
+        self.last_channel = _make_divisible(
+            last_channel * max(1.0, width_mult), round_nearest)
         self.batch_norm_kwargs = batch_norm_kwargs
         self.active_fn = get_active_fn(active_fn)
         self.kernel_sizes = kernel_sizes
         self.expand_ratio = expand_ratio
+        self.task = task
+        self.align_corners = align_corners
 
         self.block = get_block_wrapper(block)
         self.inverted_residual_setting = inverted_residual_setting
@@ -341,7 +427,7 @@ class HighResolutionNetSync(nn.Module):
         self.downsamples = nn.Sequential(*downsamples)
 
         features = []
-        for index in range(len(inverted_residual_setting) - 1):
+        for index in range(len(inverted_residual_setting)):
             in_branches = 1 if index == 0 else inverted_residual_setting[index - 1][0]
             in_channels = [self.input_channel] if index == 0 else inverted_residual_setting[index - 1][-1]
             features.append(
@@ -367,9 +453,7 @@ class HighResolutionNetSync(nn.Module):
                     batch_norm_kwargs=self.batch_norm_kwargs,
                     active_fn=self.active_fn)
             )
-
         self.features = nn.Sequential(*features)
-
         self.init_weights()
 
     def init_weights(self, pretrained=None):
