@@ -4,10 +4,10 @@ model = dict(
     type='EncoderDecoder',
     pretrained=None, #'open-mmlab://msra/hrnetv2_w18',
     backbone=dict(
-        type='HighResolutionNetSync',
+        type='HighResolutionNet',
         active_fn='nn.ReLU',
         num_classes=1000,
-        input_channel=64,
+        input_channel=24,
         last_channel=2048,
         width_mult=1.0,
         round_nearest=2,
@@ -16,15 +16,11 @@ model = dict(
         expand_ratio=4,
         kernel_sizes=[3, 5, 7],
         inverted_residual_setting=[
-            [1, [2], [64]],
-            [2, [4, 4], [18, 36]],
-            [3, [4, 4, 4], [18, 36, 72]],
-            [3, [4, 4, 4], [18, 36, 72]],
-            [3, [4, 4, 4], [18, 36, 72]],
-            [3, [4, 4, 4], [18, 36, 72]],
-            [4, [4, 4, 4, 4], [18, 36, 72, 144]],
-            [4, [4, 4, 4, 4], [18, 36, 72, 144]],
-            [4, [4, 4, 4, 4], [18, 36, 72, 144]]
+            [1, [1], [24]],
+            [2, [2, 2], [18, 36]],
+            [3, [2, 2, 3], [18, 36, 72]],
+            [4, [2, 2, 3, 4], [18, 36, 72, 144]],
+            [4, [2, 2, 3, 4], [18, 36, 72, 144]]
         ],
         head_channels=[18, 36, 72, 144]),
     decode_head=dict(
