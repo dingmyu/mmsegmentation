@@ -11,7 +11,7 @@ from mmseg.ops import resize
 import json
 
 checkpoint_kwparams = None
-checkpoint_kwparams = json.load(open('checkpoint.json'))
+# checkpoint_kwparams = json.load(open('checkpoint.json'))
 
 
 class InvertedResidualChannels(nn.Module):
