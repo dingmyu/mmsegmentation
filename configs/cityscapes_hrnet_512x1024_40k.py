@@ -8,7 +8,6 @@ model = dict(
         active_fn='nn.ReLU',
         num_classes=19,
         input_channel=24,
-        last_channel=2048,
         width_mult=1.0,
         round_nearest=2,
         input_stride=4,
@@ -22,6 +21,8 @@ model = dict(
             [4, [2, 2, 3, 4], [18, 36, 72, 144]],
             [4, [2, 2, 3, 4], [18, 36, 72, 144]]
         ],
+        last_channel=270,
+        fcn_head_for_seg=False,
         head_channels=[18, 36, 72, 144]),
     decode_head=dict(
         type='DummyHead',

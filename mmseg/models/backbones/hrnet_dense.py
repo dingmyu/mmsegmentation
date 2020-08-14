@@ -649,7 +649,7 @@ class HighResolutionNet(nn.Module):
             if fcn_head_for_seg:
                 self.transform = ConvBNReLU(
                     sum(inverted_residual_setting[-1][-1]),
-                    sum(inverted_residual_setting[-1][-1]),
+                    self.last_channel,
                     kernel_size=1,
                     batch_norm_kwargs=self.batch_norm_kwargs,
                     active_fn=self.active_fn
@@ -657,14 +657,14 @@ class HighResolutionNet(nn.Module):
             else:
                 self.transform = self.block(
                         sum(inverted_residual_setting[-1][-1]),
-                        sum(inverted_residual_setting[-1][-1]),
-                        expand_ratio=self.expand_ratio,
+                        self.last_channel,
+                        expand_ratio=2,
                         kernel_sizes=self.kernel_sizes,
                         stride=1,
                         batch_norm_kwargs=self.batch_norm_kwargs,
                         active_fn=self.active_fn,
                     )
-            self.classifier = nn.Conv2d(sum(inverted_residual_setting[-1][-1]),
+            self.classifier = nn.Conv2d(self.last_channel,
                                         num_classes,
                                         kernel_size=1)
 
