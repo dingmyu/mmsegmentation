@@ -11,7 +11,7 @@ from mmseg.ops import resize
 import json
 
 checkpoint_kwparams = None
-# checkpoint_kwparams = json.load(open('checkpoint.json'))
+checkpoint_kwparams = json.load(open('checkpoint.json'))
 
 
 class InvertedResidualChannels(nn.Module):
@@ -391,8 +391,9 @@ class FuseModule(nn.Module):
         self.in_channels_large_stride = True  # see 3.
         self.use_hr_format = use_hr_format and out_branches > in_branches  # w/o self, are two different flags. (see 1.)
         self.use_hr_format = self.use_hr_format and not(out_branches == 2 and in_branches == 1)  # see 4.
+        use_hr_format = False
 
-        self.relu = nn.ReLU(False)
+        self.relu = self.active_fn()
         if use_hr_format:
             block = ConvBNReLU  # See 2.
 
@@ -545,9 +546,10 @@ class HighResolutionNet(nn.Module):
                  expand_ratio=4,
                  kernel_sizes=[3, 5, 7],
                  inverted_residual_setting=None,
-                 task='classification',
+                 task='segmentation',
                  align_corners=False,
                  start_with_atomcell=False,
+                 fcn_head_for_seg=False,
                  **kwargs):
         super(HighResolutionNet, self).__init__()
 
@@ -626,8 +628,69 @@ class HighResolutionNet(nn.Module):
                     batch_norm_kwargs=self.batch_norm_kwargs,
                     active_fn=self.active_fn)
             )
+
+        if self.task == 'classification':
+            features.append(HeadModule(
+                pre_stage_channels=inverted_residual_setting[-1][2],
+                head_channels=head_channels,
+                last_channel=self.last_channel,
+                avg_pool_size=self.avg_pool_size,
+                block=self.block,
+                expand_ratio=self.expand_ratio,
+                kernel_sizes=self.kernel_sizes,
+                batch_norm_kwargs=self.batch_norm_kwargs,
+                active_fn=self.active_fn))
+
+            self.classifier = nn.Sequential(
+                nn.Dropout(dropout_ratio),
+                nn.Linear(last_channel, num_classes),
+            )
+        elif self.task == 'segmentation':
+            if fcn_head_for_seg:
+                self.transform = ConvBNReLU(
+                    sum(inverted_residual_setting[-1][-1]),
+                    sum(inverted_residual_setting[-1][-1]),
+                    kernel_size=1,
+                    batch_norm_kwargs=self.batch_norm_kwargs,
+                    active_fn=self.active_fn
+                )
+            else:
+                self.transform = self.block(
+                        sum(inverted_residual_setting[-1][-1]),
+                        sum(inverted_residual_setting[-1][-1]),
+                        expand_ratio=self.expand_ratio,
+                        kernel_sizes=self.kernel_sizes,
+                        stride=1,
+                        batch_norm_kwargs=self.batch_norm_kwargs,
+                        active_fn=self.active_fn,
+                    )
+            self.classifier = nn.Conv2d(sum(inverted_residual_setting[-1][-1]),
+                                        num_classes,
+                                        kernel_size=1)
+
         self.features = nn.Sequential(*features)
         self.init_weights()
+
+    def _transform_inputs(self, inputs):
+        """Transform inputs for decoder.
+
+        Args:
+            inputs (list[Tensor]): List of multi-level img features.
+
+        Returns:
+            Tensor: The transformed inputs
+        """
+
+        upsampled_inputs = [
+            resize(
+                input=x,
+                size=inputs[0].shape[2:],
+                mode='bilinear',
+                align_corners=self.align_corners) for x in inputs
+        ]
+        inputs = torch.cat(upsampled_inputs, dim=1)
+        inputs = self.transform(inputs)
+        return inputs
 
     def init_weights(self, pretrained=None):
         logging.info('=> init weights from normal distribution')
@@ -642,5 +705,7 @@ class HighResolutionNet(nn.Module):
     def forward(self, x):
         x = self.downsamples(x)
         x = self.features([x])
-        # x = self.classifier(x)
+        if self.task == 'segmentation':
+            x = self._transform_inputs(x)
+        x = self.classifier(x)
         return x

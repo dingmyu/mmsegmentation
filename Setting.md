@@ -33,7 +33,7 @@ cd mmsegmentation
 pip install -e .
 mkdir data
 cd data
-ln -s /opt/tiger/uslabcv/dingmingyu/foru cityscapes
+ln -s /opt/tiger/uslabcv/dingmingyu/dataset cityscapes
 python3 tools/convert_datasets/cityscapes.py data/cityscapes --nproc 8
 mv foru/hrnetv2_w18-00eb2006.pth ~/.cache/torch/checkpoint/
 

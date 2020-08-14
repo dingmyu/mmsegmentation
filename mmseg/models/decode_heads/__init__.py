@@ -11,9 +11,10 @@ from .psa_head import PSAHead
 from .psp_head import PSPHead
 from .sep_aspp_head import DepthwiseSeparableASPPHead
 from .uper_head import UPerHead
+from .dummy_head import DummyHead
 
 __all__ = [
     'FCNHead', 'PSPHead', 'ASPPHead', 'PSAHead', 'NLHead', 'GCHead', 'CCHead',
     'UPerHead', 'DepthwiseSeparableASPPHead', 'ANNHead', 'DAHead', 'OCRHead',
-    'EncHead'
+    'EncHead', 'DummyHead'
 ]
