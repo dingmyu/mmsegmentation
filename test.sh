@@ -1,0 +1,1 @@
+PORT=9099 ./tools/dist_test.sh configs/cityscapes_hrnet_512x1024_40k.py output/hrnet_cityscapes/latest.pth 8 --eval mIoU cityscapes

@@ -21,7 +21,7 @@ model = dict(
             [4, [2, 2, 3, 4], [18, 36, 72, 144]],
             [4, [2, 2, 3, 4], [18, 36, 72, 144]]
         ],
-        last_channel=270,
+        last_channel=64,
         fcn_head_for_seg=False,
         head_channels=[18, 36, 72, 144]),
     decode_head=dict(
@@ -106,9 +106,9 @@ optimizer_config = dict()
 # learning policy
 lr_config = dict(policy='poly', power=0.9, min_lr=1e-4, by_epoch=False)
 # runtime settings
-total_iters = 20000
-checkpoint_config = dict(by_epoch=False, interval=10000)
-evaluation = dict(interval=10000, metric='mIoU')
+total_iters = 25000
+checkpoint_config = dict(by_epoch=False, interval=5000)
+evaluation = dict(interval=5000, metric='mIoU')
 
 
 
