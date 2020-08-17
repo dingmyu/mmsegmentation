@@ -21,7 +21,7 @@ model = dict(
             [4, [2, 2, 3, 4], [18, 36, 72, 144]],
             [4, [2, 2, 3, 4], [18, 36, 72, 144]]
         ],
-        last_channel=64,
+        last_channel=90,
         fcn_head_for_seg=False,
         head_channels=[18, 36, 72, 144]),
     decode_head=dict(
