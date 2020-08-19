@@ -561,7 +561,7 @@ class FuseModule(nn.Module):
             if self.use_hr_format:
                 for branch in range(self.in_branches, self.out_branches):
                     x_fuse.append(self.fuse_layers[branch][0](x_fuse[branch - 1]))
-        return x_fusee
+        return x_fuse
 
 
 @BACKBONES.register_module()
