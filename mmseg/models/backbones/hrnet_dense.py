@@ -379,7 +379,9 @@ class FuseModule(nn.Module):
                  kernel_sizes=[3, 5, 7],
                  batch_norm_kwargs=None,
                  active_fn=get_active_fn('nn.ReLU6'),
-                 use_hr_format=True):
+                 use_hr_format=True,
+                 only_fuse_neighbor=True,
+                 directly_downsample=False):
         super(FuseModule, self).__init__()
 
         self.out_branches = out_branches
@@ -388,6 +390,7 @@ class FuseModule(nn.Module):
         self.batch_norm_kwargs = batch_norm_kwargs
         self.expand_ratio = expand_ratio
         self.kernel_sizes = kernel_sizes
+        self.only_fuse_neighbor = only_fuse_neighbor
         self.in_channels_large_stride = True  # see 3.
         self.use_hr_format = use_hr_format and out_branches > in_branches  # w/o self, are two different flags. (see 1.)
         self.use_hr_format = self.use_hr_format and not(out_branches == 2 and in_branches == 1)  # see 4.
@@ -401,6 +404,10 @@ class FuseModule(nn.Module):
         for i in range(out_branches if not self.use_hr_format else in_branches):
             fuse_layer = []
             for j in range(in_branches):
+                if only_fuse_neighbor:
+                    if j < i - 1 or j > i + 1:
+                        fuse_layer.append(None)
+                        continue
                 if j > i:
                     fuse_layer.append(nn.Sequential(
                         block(
@@ -431,69 +438,82 @@ class FuseModule(nn.Module):
                             ))
                 else:
                     downsamples = []
-                    for k in range(i - j):
-                        if self.in_channels_large_stride:
-                            if k == i - j - 1:
-                                downsamples.append(
-                                    block(
-                                        in_channels[j],
-                                        out_channels[i],
-                                        expand_ratio=self.expand_ratio,
-                                        kernel_sizes=self.kernel_sizes,
-                                        stride=2,
-                                        batch_norm_kwargs=self.batch_norm_kwargs,
-                                        active_fn=self.active_fn if not use_hr_format else None,
-                                        kernel_size=3  # for hr format
-                                    ))
+                    if directly_downsample:
+                        downsamples.append(
+                            block(
+                                in_channels[j],
+                                out_channels[i],
+                                expand_ratio=self.expand_ratio,
+                                kernel_sizes=self.kernel_sizes,
+                                stride=2 ** (i - j),
+                                batch_norm_kwargs=self.batch_norm_kwargs,
+                                active_fn=self.active_fn if not use_hr_format else None,
+                                kernel_size=3  # for hr format
+                            ))
+                    else:
+                        for k in range(i - j):
+                            if self.in_channels_large_stride:
+                                if k == i - j - 1:
+                                    downsamples.append(
+                                        block(
+                                            in_channels[j],
+                                            out_channels[i],
+                                            expand_ratio=self.expand_ratio,
+                                            kernel_sizes=self.kernel_sizes,
+                                            stride=2,
+                                            batch_norm_kwargs=self.batch_norm_kwargs,
+                                            active_fn=self.active_fn if not use_hr_format else None,
+                                            kernel_size=3  # for hr format
+                                        ))
+                                else:
+                                    downsamples.append(
+                                        block(
+                                            in_channels[j],
+                                            in_channels[j],
+                                            expand_ratio=self.expand_ratio,
+                                            kernel_sizes=self.kernel_sizes,
+                                            stride=2,
+                                            batch_norm_kwargs=self.batch_norm_kwargs,
+                                            active_fn=self.active_fn,
+                                            kernel_size=3  # for hr format
+                                        ))
                             else:
-                                downsamples.append(
-                                    block(
-                                        in_channels[j],
-                                        in_channels[j],
-                                        expand_ratio=self.expand_ratio,
-                                        kernel_sizes=self.kernel_sizes,
-                                        stride=2,
-                                        batch_norm_kwargs=self.batch_norm_kwargs,
-                                        active_fn=self.active_fn,
-                                        kernel_size=3  # for hr format
-                                    ))
-                        else:
-                            if k == 0:
-                                downsamples.append(
-                                    block(
-                                        in_channels[j],
-                                        out_channels[j + 1],
-                                        expand_ratio=self.expand_ratio,
-                                        kernel_sizes=self.kernel_sizes,
-                                        stride=2,
-                                        batch_norm_kwargs=self.batch_norm_kwargs,
-                                        active_fn=self.active_fn if not (use_hr_format and i == j + 1) else None,
-                                        kernel_size=3  # for hr format
-                                    ))
-                            elif k == i - j - 1:
-                                downsamples.append(
-                                    block(
-                                        out_channels[j + k],
-                                        out_channels[i],
-                                        expand_ratio=self.expand_ratio,
-                                        kernel_sizes=self.kernel_sizes,
-                                        stride=2,
-                                        batch_norm_kwargs=self.batch_norm_kwargs,
-                                        active_fn=self.active_fn if not use_hr_format else None,
-                                        kernel_size=3  # for hr format
-                                    ))
-                            else:
-                                downsamples.append(
-                                    block(
-                                        out_channels[j + k],
-                                        out_channels[j + k + 1],
-                                        expand_ratio=self.expand_ratio,
-                                        kernel_sizes=self.kernel_sizes,
-                                        stride=2,
-                                        batch_norm_kwargs=self.batch_norm_kwargs,
-                                        active_fn=self.active_fn,
-                                        kernel_size=3  # for hr format
-                                    ))
+                                if k == 0:
+                                    downsamples.append(
+                                        block(
+                                            in_channels[j],
+                                            out_channels[j + 1],
+                                            expand_ratio=self.expand_ratio,
+                                            kernel_sizes=self.kernel_sizes,
+                                            stride=2,
+                                            batch_norm_kwargs=self.batch_norm_kwargs,
+                                            active_fn=self.active_fn if not (use_hr_format and i == j + 1) else None,
+                                            kernel_size=3  # for hr format
+                                        ))
+                                elif k == i - j - 1:
+                                    downsamples.append(
+                                        block(
+                                            out_channels[j + k],
+                                            out_channels[i],
+                                            expand_ratio=self.expand_ratio,
+                                            kernel_sizes=self.kernel_sizes,
+                                            stride=2,
+                                            batch_norm_kwargs=self.batch_norm_kwargs,
+                                            active_fn=self.active_fn if not use_hr_format else None,
+                                            kernel_size=3  # for hr format
+                                        ))
+                                else:
+                                    downsamples.append(
+                                        block(
+                                            out_channels[j + k],
+                                            out_channels[j + k + 1],
+                                            expand_ratio=self.expand_ratio,
+                                            kernel_sizes=self.kernel_sizes,
+                                            stride=2,
+                                            batch_norm_kwargs=self.batch_norm_kwargs,
+                                            active_fn=self.active_fn,
+                                            kernel_size=3  # for hr format
+                                        ))
                     fuse_layer.append(nn.Sequential(*downsamples))
             fuse_layers.append(nn.ModuleList(fuse_layer))
         if self.use_hr_format:
@@ -512,18 +532,36 @@ class FuseModule(nn.Module):
 
     def forward(self, x):
         x_fuse = []
-        for i in range(len(self.fuse_layers) if not self.use_hr_format else self.in_branches):
-            y = self.fuse_layers[i][0](x[0]) if self.fuse_layers[i][0] else x[0]  # hr_format, None
-            for j in range(1, self.in_branches):
-                if self.fuse_layers[i][j]:
-                    y = y + self.fuse_layers[i][j](x[j])
-                else:  # hr_format, None
-                    y = y + x[j]
-            x_fuse.append(self.relu(y))  # TODO(Mingyu): Use ReLU?
-        if self.use_hr_format:
-            for branch in range(self.in_branches, self.out_branches):
-                x_fuse.append(self.fuse_layers[branch][0](x_fuse[branch - 1]))
-        return x_fuse
+        if not self.only_fuse_neighbor:
+            for i in range(len(self.fuse_layers) if not self.use_hr_format else self.in_branches):
+                y = self.fuse_layers[i][0](x[0]) if self.fuse_layers[i][0] else x[0]  # hr_format, None
+                for j in range(1, self.in_branches):
+                    if self.fuse_layers[i][j]:
+                        y = y + self.fuse_layers[i][j](x[j])
+                    else:  # hr_format, None
+                        y = y + x[j]
+                x_fuse.append(self.relu(y))  # TODO(Mingyu): Use ReLU?
+            if self.use_hr_format:
+                for branch in range(self.in_branches, self.out_branches):
+                    x_fuse.append(self.fuse_layers[branch][0](x_fuse[branch - 1]))
+        else:
+            for i in range(len(self.fuse_layers) if not self.use_hr_format else self.in_branches):
+                flag = 1
+                for j in range(i-1, i+2):
+                    if 0 <= j < self.in_branches:
+                        if flag:
+                            y = self.fuse_layers[i][j](x[j]) if self.fuse_layers[i][j] else x[j]  # hr_format, None
+                            flag = 0
+                        else:
+                            if self.fuse_layers[i][j]:
+                                y = y + self.fuse_layers[i][j](x[j])
+                            else:  # hr_format, None
+                                y = y + x[j]
+                x_fuse.append(self.relu(y))  # TODO(Mingyu): Use ReLU?
+            if self.use_hr_format:
+                for branch in range(self.in_branches, self.out_branches):
+                    x_fuse.append(self.fuse_layers[branch][0](x_fuse[branch - 1]))
+        return x_fusee
 
 
 @BACKBONES.register_module()
