@@ -262,7 +262,7 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = active_fn()
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = None
@@ -414,7 +414,7 @@ class FuseModule(nn.Module):
         self.use_hr_format = self.use_hr_format and not(out_branches == 2 and in_branches == 1)  # see 4.
         use_hr_format = False
 
-        self.relu = self.active_fn()
+        self.relu = functools.partial(nn.ReLU, inplace=False)
         if use_hr_format:
             block = ConvBNReLU  # See 2.
 
@@ -435,7 +435,7 @@ class FuseModule(nn.Module):
                             kernel_sizes=self.kernel_sizes,
                             stride=1,
                             batch_norm_kwargs=self.batch_norm_kwargs,
-                            active_fn=self.active_fn if not use_hr_format else None,
+                            active_fn=self.relu if not use_hr_format else None,
                             kernel_size=1  # for hr format
                         ),
                         nn.Upsample(scale_factor=2 ** (j - i), mode='nearest')))
@@ -451,7 +451,7 @@ class FuseModule(nn.Module):
                                 kernel_sizes=self.kernel_sizes,
                                 stride=1,
                                 batch_norm_kwargs=self.batch_norm_kwargs,
-                                active_fn=self.active_fn if not use_hr_format else None,
+                                active_fn=self.relu if not use_hr_format else None,
                                 kernel_size=3  # for hr format
                             ))
                 else:
@@ -465,7 +465,7 @@ class FuseModule(nn.Module):
                                 kernel_sizes=self.kernel_sizes,
                                 stride=2 ** (i - j),
                                 batch_norm_kwargs=self.batch_norm_kwargs,
-                                active_fn=self.active_fn if not use_hr_format else None,
+                                active_fn=self.relu if not use_hr_format else None,
                                 kernel_size=3  # for hr format
                             ))
                     else:
@@ -480,7 +480,7 @@ class FuseModule(nn.Module):
                                             kernel_sizes=self.kernel_sizes,
                                             stride=2,
                                             batch_norm_kwargs=self.batch_norm_kwargs,
-                                            active_fn=self.active_fn if not use_hr_format else None,
+                                            active_fn=self.relu if not use_hr_format else None,
                                             kernel_size=3  # for hr format
                                         ))
                                 else:
@@ -492,7 +492,7 @@ class FuseModule(nn.Module):
                                             kernel_sizes=self.kernel_sizes,
                                             stride=2,
                                             batch_norm_kwargs=self.batch_norm_kwargs,
-                                            active_fn=self.active_fn,
+                                            active_fn=self.relu,
                                             kernel_size=3  # for hr format
                                         ))
                             else:
@@ -505,7 +505,7 @@ class FuseModule(nn.Module):
                                             kernel_sizes=self.kernel_sizes,
                                             stride=2,
                                             batch_norm_kwargs=self.batch_norm_kwargs,
-                                            active_fn=self.active_fn if not (use_hr_format and i == j + 1) else None,
+                                            active_fn=self.relu if not (use_hr_format and i == j + 1) else None,
                                             kernel_size=3  # for hr format
                                         ))
                                 elif k == i - j - 1:
@@ -517,7 +517,7 @@ class FuseModule(nn.Module):
                                             kernel_sizes=self.kernel_sizes,
                                             stride=2,
                                             batch_norm_kwargs=self.batch_norm_kwargs,
-                                            active_fn=self.active_fn if not use_hr_format else None,
+                                            active_fn=self.relu if not use_hr_format else None,
                                             kernel_size=3  # for hr format
                                         ))
                                 else:
@@ -529,7 +529,7 @@ class FuseModule(nn.Module):
                                             kernel_sizes=self.kernel_sizes,
                                             stride=2,
                                             batch_norm_kwargs=self.batch_norm_kwargs,
-                                            active_fn=self.active_fn,
+                                            active_fn=self.relu,
                                             kernel_size=3  # for hr format
                                         ))
                     fuse_layer.append(nn.Sequential(*downsamples))
@@ -543,7 +543,7 @@ class FuseModule(nn.Module):
                     kernel_sizes=self.kernel_sizes,
                     stride=2,
                     batch_norm_kwargs=self.batch_norm_kwargs,
-                    active_fn=self.active_fn,
+                    active_fn=self.relu,
                     kernel_size=3  # for hr format
                 )]))
         self.fuse_layers = nn.ModuleList(fuse_layers)
@@ -575,7 +575,7 @@ class FuseModule(nn.Module):
                                 y = y + self.fuse_layers[i][j](x[j])
                             else:  # hr_format, None
                                 y = y + x[j]
-                x_fuse.append(self.relu(y))  # TODO(Mingyu): Use ReLU?
+                x_fuse.append(self.relu()(y))  # TODO(Mingyu): Use ReLU?
             if self.use_hr_format:
                 for branch in range(self.in_branches, self.out_branches):
                     x_fuse.append(self.fuse_layers[branch][0](x_fuse[branch - 1]))
