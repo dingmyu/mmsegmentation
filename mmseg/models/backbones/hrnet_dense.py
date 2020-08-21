@@ -11,7 +11,7 @@ from mmseg.ops import resize
 import json
 
 checkpoint_kwparams = None
-checkpoint_kwparams = json.load(open('checkpoint.json'))
+# checkpoint_kwparams = json.load(open('checkpoint.json'))
 
 
 class InvertedResidualChannels(nn.Module):
@@ -27,7 +27,7 @@ class InvertedResidualChannels(nn.Module):
                  active_fn=None,
                  batch_norm_kwargs=None):
         super(InvertedResidualChannels, self).__init__()
-        assert stride in [1, 2]
+        # assert stride in [1, 2]
         assert len(channels) == len(kernel_sizes)
 
         self.input_dim = inp
@@ -203,10 +203,17 @@ def _make_divisible(v, divisor, min_value=None):
         new_v += divisor
     return new_v
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=False)
+
+def conv3x3(in_planes, out_planes, stride=1, dilation=1):
+    """3x3 convolution with padding."""
+    return nn.Conv2d(
+        in_planes,
+        out_planes,
+        kernel_size=3,
+        stride=stride,
+        padding=dilation,
+        dilation=dilation,
+        bias=False)
 
 
 class ConvBNReLU(nn.Sequential):
@@ -220,16 +227,20 @@ class ConvBNReLU(nn.Sequential):
                  groups=1,
                  active_fn=None,
                  batch_norm_kwargs=None,
+                 dilation=1,
+                 padding=None,
                  **kwargs):
         if batch_norm_kwargs is None:
             batch_norm_kwargs = {}
-        padding = (kernel_size - 1) // 2
+        if not padding:
+            padding = (kernel_size - 1) // 2
         super(ConvBNReLU, self).__init__(
             nn.Conv2d(in_planes,
                       out_planes,
                       kernel_size,
                       stride,
                       padding,
+                      dilation=dilation,
                       groups=groups,
                       bias=False),
             nn.BatchNorm2d(out_planes, **batch_norm_kwargs), active_fn() if active_fn is not None else Identity())
@@ -250,10 +261,10 @@ class BasicBlock(nn.Module):
                  ):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes, momentum=0.1)
+        self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes, momentum=0.1)
+        self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = None
         self.stride = stride
         if self.stride != 1 or inplanes != planes:
@@ -261,7 +272,7 @@ class BasicBlock(nn.Module):
                 nn.Conv2d(inplanes,
                           planes,
                           kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes, momentum=0.1),
+                nn.BatchNorm2d(planes),
             )
 
     def forward(self, x):
@@ -287,8 +298,15 @@ def get_block_wrapper(block_str):
     """Wrapper for MobileNetV2 block.
     Use `expand_ratio` instead of manually specified channels number."""
 
-    # return ConvBNReLU
-    return InvertedResidual
+    if block_str == 'InvertedResidualChannels':
+        return InvertedResidual
+    elif block_str == 'ConvBNReLU':
+        return ConvBNReLU
+    elif block_str == 'BasicBlock':
+        return BasicBlock
+    else:
+        raise ValueError('Unknown type of blocks.')
+
 
 
 class ParallelModule(nn.Module):
@@ -571,7 +589,7 @@ class HighResolutionNet(nn.Module):
                  num_classes=1000,
                  input_size=224,
                  input_stride=4,
-                 input_channel=16,
+                 input_channel=[16, 16],
                  last_channel=1024,
                  head_channels=None,
                  bn_momentum=0.1,
@@ -598,10 +616,8 @@ class HighResolutionNet(nn.Module):
 
         self.avg_pool_size = input_size // 32
         self.input_stride = input_stride
-        self.input_channel = _make_divisible(
-            input_channel * width_mult, round_nearest)
-        self.last_channel = _make_divisible(
-            last_channel * max(1.0, width_mult), round_nearest)
+        self.input_channel = [_make_divisible(item * width_mult, round_nearest) for item in input_channel]
+        self.last_channel = _make_divisible(last_channel * max(1.0, width_mult), round_nearest)
         self.batch_norm_kwargs = batch_norm_kwargs
         self.active_fn = get_active_fn(active_fn)
         self.kernel_sizes = kernel_sizes
@@ -616,23 +632,23 @@ class HighResolutionNet(nn.Module):
         if self.input_stride > 1:
             downsamples.append(ConvBNReLU(
                 3,
-                self.input_channel,
+                input_channel[0],
                 kernel_size=3,
                 stride=2,
                 batch_norm_kwargs=self.batch_norm_kwargs,
                 active_fn=self.active_fn))
         if self.input_stride > 2:
             if start_with_atomcell:
-                downsamples.append(InvertedResidual(self.input_channel,
-                                                    self.input_channel,
+                downsamples.append(InvertedResidual(input_channel[0],
+                                                    input_channel[0],
                                                     1,
                                                     1,
                                                     [3],
                                                     self.active_fn,
                                                     self.batch_norm_kwargs))
             downsamples.append(ConvBNReLU(
-                self.input_channel,
-                self.input_channel,
+                input_channel[0],
+                input_channel[1],
                 kernel_size=3,
                 stride=2,
                 batch_norm_kwargs=self.batch_norm_kwargs,
@@ -642,7 +658,7 @@ class HighResolutionNet(nn.Module):
         features = []
         for index in range(len(inverted_residual_setting)):
             in_branches = 1 if index == 0 else inverted_residual_setting[index - 1][0]
-            in_channels = [self.input_channel] if index == 0 else inverted_residual_setting[index - 1][-1]
+            in_channels = [input_channel[1]] if index == 0 else inverted_residual_setting[index - 1][-1]
             features.append(
                 FuseModule(
                     in_branches=in_branches,
@@ -671,7 +687,7 @@ class HighResolutionNet(nn.Module):
             features.append(HeadModule(
                 pre_stage_channels=inverted_residual_setting[-1][2],
                 head_channels=head_channels,
-                last_channel=self.last_channel,
+                last_channel=last_channel,
                 avg_pool_size=self.avg_pool_size,
                 block=self.block,
                 expand_ratio=self.expand_ratio,
@@ -687,7 +703,7 @@ class HighResolutionNet(nn.Module):
             if fcn_head_for_seg:
                 self.transform = ConvBNReLU(
                     sum(inverted_residual_setting[-1][-1]),
-                    self.last_channel,
+                    last_channel,
                     kernel_size=1,
                     batch_norm_kwargs=self.batch_norm_kwargs,
                     active_fn=self.active_fn
@@ -695,18 +711,19 @@ class HighResolutionNet(nn.Module):
             else:
                 self.transform = self.block(
                         sum(inverted_residual_setting[-1][-1]),
-                        self.last_channel,
-                        expand_ratio=2,
+                        last_channel,
+                        expand_ratio=self.expand_ratio,
                         kernel_sizes=self.kernel_sizes,
                         stride=1,
                         batch_norm_kwargs=self.batch_norm_kwargs,
                         active_fn=self.active_fn,
                     )
-            self.classifier = nn.Conv2d(self.last_channel,
+            self.classifier = nn.Conv2d(last_channel,
                                         num_classes,
                                         kernel_size=1)
 
         self.features = nn.Sequential(*features)
+
         self.init_weights()
 
     def _transform_inputs(self, inputs):

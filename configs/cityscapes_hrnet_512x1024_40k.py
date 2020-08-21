@@ -7,7 +7,7 @@ model = dict(
         type='HighResolutionNet',
         active_fn='nn.ReLU',
         num_classes=19,
-        input_channel=24,
+        input_channel=[24, 24],
         width_mult=1.0,
         round_nearest=2,
         input_stride=4,
@@ -23,6 +23,7 @@ model = dict(
         ],
         last_channel=90,
         fcn_head_for_seg=False,
+        block='InvertedResidualChannels',
         head_channels=[18, 36, 72, 144]),
     decode_head=dict(
         type='DummyHead',
