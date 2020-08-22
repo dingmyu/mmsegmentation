@@ -23,8 +23,8 @@ model = dict(
         ],
         last_channel=90,
         fcn_head_for_seg=False,
-        block='InvertedResidualChannels',
-        head_channels=[18, 36, 72, 144]),
+        block='BasicBlock',
+        head_channels=None),
     decode_head=dict(
         type='DummyHead',
         in_channels=[18, 36, 72, 144],
