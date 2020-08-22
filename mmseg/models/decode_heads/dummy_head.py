@@ -24,11 +24,12 @@ class DummyHead(BaseDecodeHead):
                  kernel_size=3,
                  concat_input=True,
                  **kwargs):
-        assert num_convs > 0
-        self.num_convs = num_convs
-        self.concat_input = concat_input
         super(DummyHead, self).__init__(**kwargs)
+        del self.conv_seg
+        self.conv_seg = None
 
+    def init_weights(self):
+        pass
 
     def forward(self, inputs):
         """Forward function."""
