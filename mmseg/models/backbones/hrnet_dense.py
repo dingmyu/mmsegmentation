@@ -397,7 +397,7 @@ class FuseModule(nn.Module):
                  kernel_sizes=[3, 5, 7],
                  batch_norm_kwargs=None,
                  active_fn=get_active_fn('nn.ReLU6'),
-                 use_hr_format=True,
+                 use_hr_format=False,
                  only_fuse_neighbor=True,
                  directly_downsample=True):
         super(FuseModule, self).__init__()
@@ -411,17 +411,16 @@ class FuseModule(nn.Module):
         self.only_fuse_neighbor = only_fuse_neighbor
         self.in_channels_large_stride = True  # see 3.
         if only_fuse_neighbor:
-            self.use_hr_format = use_hr_format and out_branches > in_branches + 1
+            self.use_hr_format = out_branches > in_branches
             # w/o self, are two different flags. (see 1.)
         else:
-            self.use_hr_format = use_hr_format and \
-                                 out_branches > in_branches and \
+            self.use_hr_format = out_branches > in_branches and \
                                  not (out_branches == 2 and in_branches == 1)  # see 4.
-        use_hr_format = False
 
         self.relu = functools.partial(nn.ReLU, inplace=False)
         if use_hr_format:
             block = ConvBNReLU  # See 2.
+        block = ConvBNReLU
 
         fuse_layers = []
         for i in range(out_branches if not self.use_hr_format else in_branches):
