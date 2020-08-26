@@ -19,10 +19,10 @@ ps aux | grep hr18 | awk '{print $2}' | xargs kill -9
 ps aux | grep hrnet | awk '{print $2}' | xargs kill -9
 
 # US
-scp -P 9001 -r tiger@10.188.180.20:/opt/tiger/uslabcv/dingmingyu/foru/ .
+scp -P 9001 -r tiger@10.188.180.20:/opt/tiger/uslabcv/dingmingyu/dataset/ .
 
 # China scp -P 9001 -r tiger@10.148.57.22:/opt/tiger/uslabcv/dingmingyu/dataset/foru/ADEChallengeData2016.zip .
-scp -P 9001 -r tiger@10.148.57.22:/opt/tiger/uslabcv/dingmingyu/dataset/foru/ .
+scp -P 9001 -r tiger@10.130.18.85:/opt/tiger/uslabcv/dingmingyu/dataset/ .
 cd foru
 unzip gtFine_trainvaltest.zip
 unzip leftImg8bit_trainvaltest.zip
@@ -34,8 +34,11 @@ pip install -e .
 mkdir data
 cd data
 ln -s /opt/tiger/uslabcv/dingmingyu/dataset cityscapes
+cd ..
 python3 tools/convert_datasets/cityscapes.py data/cityscapes --nproc 8
-mv foru/hrnetv2_w18-00eb2006.pth ~/.cache/torch/checkpoint/
 
+python3 resize_data.py  # for small resolution
+
+mv foru/hrnetv2_w18-00eb2006.pth ~/.cache/torch/checkpoint/
 mkdir ade
 ln -s /opt/tiger/uslabcv/dingmingyu/foru/ADEChallengeData2016 .
