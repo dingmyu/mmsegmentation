@@ -49,7 +49,7 @@ for line in f:
     print(command)
 
     os.system(command)
-    os.system('''ps aux | grep hrnet | awk '{print $2}' | xargs kill -9''')
+    os.system('''ps aux | grep %s | awk '{print $2}' | xargs kill -9''' % params)
 
 # cd output
 # rsync -azv * myding@10.200.67.218:/Users/myding/Documents/output/
