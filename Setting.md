@@ -17,6 +17,7 @@ pip3 install -e .
 hdfs dfs -copyFromLocal ./foru hdfs:///home/byte_uslab_cvg/user/dingmingyu/dataset/
 ps aux | grep hr18 | awk '{print $2}' | xargs kill -9
 ps aux | grep hrnet | awk '{print $2}' | xargs kill -9
+jupyter-lab --no-browser --ip=0.0.0.0 --port=9999
 
 # US
 scp -P 9001 -r tiger@10.188.180.20:/opt/tiger/uslabcv/dingmingyu/dataset/ .
