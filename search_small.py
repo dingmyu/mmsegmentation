@@ -44,7 +44,7 @@ f = open('search_list.txt').readlines()[int(sys.argv[6]):int(sys.argv[7])]
 for line in f:
     params = line.strip()
     command = 'CUDA_VISIBLE_DEVICES={},{} PORT={} bash ./tools/dist_train.sh ' \
-              'configs/cityscapes_hrnet_{}x{}_40k.py 2 --net_params {} --work_dir ./output/{}'.format(
+              'configs/cityscapes_hrnet_{}x{}_40k.py 2 --net_params {} --work_dir ./output/4x{}'.format(
                 sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], params, params)
     print(command)
 
