@@ -39,11 +39,12 @@ import time
 #     print(item, file=f)
 # f.close()
 
-f = open('search_list.txt').readlines()[0:100]
+f = open('search_list.txt').readlines()[int(sys.argv[5]):int(sys.argv[6])]
 for line in f:
     params = line.strip()
-    command = 'PORT=9099 bash ./tools/dist_train.sh ' \
-              'configs/cityscapes_hrnet_512x1024_40k.py 8 --net_params {} --work_dir ./output/{}'.format(params, params)
+    command = 'CUDA_VISIBLE_DEVICES={},{} PORT=9099 bash ./tools/dist_train.sh ' \
+              'configs/cityscapes_hrnet_{}x{}_40k.py 2 --net_params {} --work_dir ./output/{}'.format(
+                sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], params, params)
     print(command)
 
     os.system(command)
