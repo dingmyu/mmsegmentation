@@ -1,6 +1,6 @@
 from mmcv.utils import Registry, build_from_cfg
 from torch import nn
-from thop import profile
+# from thop import profile
 import torch
 from mmseg.utils import collect_env, get_root_logger
 
