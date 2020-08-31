@@ -22,8 +22,8 @@ model = dict(
             [4, [2, 2, 3, 4], [18, 36, 72, 144]]
         ],
         last_channel=90,
-        fcn_head_for_seg=True,
-        block='BasicBlock',
+        fcn_head_for_seg=False,
+        block='InvertedResidualChannels',
         head_channels=None),
     decode_head=dict(
         type='DummyHead',

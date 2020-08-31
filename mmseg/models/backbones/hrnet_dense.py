@@ -13,7 +13,7 @@ import numpy as np
 import math
 
 checkpoint_kwparams = None
-# checkpoint_kwparams = json.load(open('checkpoint.json'))
+checkpoint_kwparams = json.load(open('checkpoint.json'))
 
 
 class PositionEmbeddingSine(nn.Module):
@@ -46,8 +46,8 @@ class PositionEmbeddingSine(nn.Module):
         dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32, device=x.device)
         dim_t = self.temperature ** (2 * (dim_t // 2) / self.num_pos_feats)
 
-        pos_x = x_embed[:, :, :, None] / dim_t
-        pos_y = y_embed[:, :, :, None] / dim_t
+        pos_x = x_embed[:, :, :, None].cuda() / dim_t
+        pos_y = y_embed[:, :, :, None].cuda() / dim_t
         pos_x = torch.stack((pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()), dim=4).flatten(3)
         pos_y = torch.stack((pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim=4).flatten(3)
         pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
@@ -105,20 +105,26 @@ class Tokenizer(nn.Module):
 
         # c -> l, get 2d attention score, It can be seen as a convolutional filter that divides the feature map X
         #   into various regions that corresponds to different semantic concepts.
-        self.conv_token_coef = nn.Conv2d(c, l, kernel_size=1, padding=0, bias=False)
+        self.conv_token_coef = nn.Sequential(nn.Conv2d(c, l, kernel_size=1, padding=0, bias=False),
+                                             nn.BatchNorm2d(l))
 
         # c -> c, get 2d feature (value), maybe not useful
-        self.conv_value = nn.Conv2d(c, c, kernel_size=1, padding=0, bias=False, groups=groups)
+        self.conv_value = nn.Sequential(nn.Conv2d(c, c, kernel_size=1, padding=0, bias=False, groups=groups),
+                                        nn.BatchNorm2d(c))
 
         self.pos_encoding = PosEncoder(size=(16, 16), num_downsample=1)
+        # self.pos_sine = PositionEmbeddingSine(num_pos_feats=2)
 
-        self.conv_token = nn.Conv1d(c + self.pos_encoding.pos_dim, ct, kernel_size=1, padding=0, bias=False)
+        self.conv_token = nn.Sequential(nn.Conv1d(c + self.pos_encoding.pos_dim, ct, kernel_size=1, padding=0, bias=False),
+                                        nn.BatchNorm1d(ct))
         self.head = head
         self.c = c
         self.ct = ct
 
     # feature: N, C, H, W, token: N, CT , L
     def forward(self, feature):
+        # pos_sine = self.pos_sine(feature)
+        # feature = torch.cat((feature, pos_sine), dim=1)
         token_coef = self.conv_token_coef(feature)  # c -> l, get 2d tokens
 
         N, L, H, W = token_coef.shape
@@ -141,10 +147,14 @@ class Tokenizer(nn.Module):
 class Transformer(nn.Module):
     def __init__(self, ct, head=3, kqv_groups=3):
         super(Transformer, self).__init__()
-        self.k_conv = nn.Conv1d(ct, ct // 2, kernel_size=1, padding=0, bias=False, groups=kqv_groups)
-        self.q_conv = nn.Conv1d(ct, ct // 2, kernel_size=1, padding=0, bias=False, groups=kqv_groups)
-        self.v_conv = nn.Conv1d(ct, ct, kernel_size=1, padding=0, bias=False, groups=kqv_groups)
-        self.ff_conv = nn.Conv1d(ct, ct, kernel_size=1, padding=0, bias=False)
+        self.k_conv = nn.Sequential(nn.Conv1d(ct, ct // 2, kernel_size=1, padding=0, bias=False, groups=kqv_groups),
+                                    nn.BatchNorm1d(ct // 2))
+        self.q_conv = nn.Sequential(nn.Conv1d(ct, ct // 2, kernel_size=1, padding=0, bias=False, groups=kqv_groups),
+                                    nn.BatchNorm1d(ct // 2))
+        self.v_conv = nn.Sequential(nn.Conv1d(ct, ct, kernel_size=1, padding=0, bias=False, groups=kqv_groups),
+                                    nn.BatchNorm1d(ct))
+        self.ff_conv = nn.Sequential(nn.Conv1d(ct, ct, kernel_size=1, padding=0, bias=False),
+                                     nn.BatchNorm1d(ct))
         self.head = head
         self.ct = ct
 
@@ -170,8 +180,10 @@ class Projector(nn.Module):
         super(Projector, self).__init__()
         self.head = head
 
-        self.proj_value_conv = nn.Conv1d(CT, C, 1)
-        self.proj_key_conv = nn.Conv1d(CT, C, 1)
+        self.proj_value_conv = nn.Sequential(nn.Conv1d(CT, C, 1),
+                                             nn.BatchNorm1d(C))
+        self.proj_key_conv = nn.Sequential(nn.Conv1d(CT, C, 1),
+                                           nn.BatchNorm1d(C))
         # self.proj_query_conv = nn.Conv2d(C, CT, 1, groups=groups)
 
     def forward(self, feature, token):
@@ -219,6 +231,10 @@ class InvertedResidualChannels(nn.Module):
         self.active_fn = active_fn
 
         self.ops, self.pw_bn = self._build(channels, kernel_sizes, expand)
+        if self.use_res_connect:
+            self.Tokenizer = Tokenizer(32, inp, inp)  # l, ct, c
+            self.Transformer = Transformer(inp)
+            self.Projector = Projector(inp, inp)
 
         if not self.use_res_connect:  # TODO(Mingyu): Add this residual
             # assert (self.input_dim % min(self.input_dim, self.output_dim) == 0
@@ -287,10 +303,14 @@ class InvertedResidualChannels(nn.Module):
             if not self.use_res_connect:
                 return self.residual(x)
             else:
+                token = self.Transformer(self.Tokenizer(x))
+                x = self.Projector(x, token)
                 return x
         tmp = sum([op(x) for op in self.ops])
         tmp = self.pw_bn(tmp)
         if self.use_res_connect:
+            token = self.Transformer(self.Tokenizer(x))
+            x = self.Projector(x, token)
             return x + tmp
         else:
             return self.residual(x) + tmp
@@ -591,14 +611,14 @@ class FuseModule(nn.Module):
         if only_fuse_neighbor:
             self.use_hr_format = out_branches > in_branches
             # w/o self, are two different flags. (see 1.)
-        else:
+        if 1:
             self.use_hr_format = out_branches > in_branches and \
                                  not (out_branches == 2 and in_branches == 1)  # see 4.
 
         self.relu = functools.partial(nn.ReLU, inplace=False)
         if use_hr_format:
             block = ConvBNReLU  # See 2.
-        block = ConvBNReLU
+        # block = ConvBNReLU
 
         fuse_layers = []
         for i in range(out_branches if not self.use_hr_format else in_branches):
