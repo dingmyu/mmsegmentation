@@ -50,4 +50,4 @@ for line in f:
     os.system('''ps aux | grep hrnet | awk '{print $2}' | xargs kill -9''')
 
 # cd output
-# rsync -azv * myding@10.200.67.218:/Users/myding/Documents/output/
+# rsync -azv * myding@10.200.124.118:/Users/myding/Documents/output/
