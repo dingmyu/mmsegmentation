@@ -17,6 +17,137 @@ checkpoint_kwparams = None
 checkpoint_kwparams = json.load(open('checkpoint.json'))
 
 
+class InvertedResidualChannelsFused(nn.Module):
+    """Speedup version of `InvertedResidualChannels` by fusing small kernels.
+
+    NOTE: It may consume more GPU memory.
+    Support `Squeeze-and-Excitation`.
+    """
+
+    def __init__(self,
+                 inp,
+                 oup,
+                 stride,
+                 channels,
+                 kernel_sizes,
+                 expand,
+                 active_fn=None,
+                 batch_norm_kwargs=None,
+                 se_ratio=None):
+        super(InvertedResidualChannelsFused, self).__init__()
+        assert stride in [1, 2]
+        assert len(channels) == len(kernel_sizes)
+
+        self.input_dim = inp
+        self.output_dim = oup
+        self.expand = expand
+        self.stride = stride
+        self.kernel_sizes = kernel_sizes
+        self.channels = channels
+        self.use_res_connect = self.stride == 1 and inp == oup
+        self.batch_norm_kwargs = batch_norm_kwargs
+        self.active_fn = active_fn
+        self.se_ratio = se_ratio
+
+        (self.expand_conv, self.depth_ops, self.project_conv,
+         self.se_op) = self._build(channels, kernel_sizes, expand, se_ratio)
+
+        if not self.use_res_connect:
+            # assert (self.input_dim % min(self.input_dim, self.output_dim) == 0
+            #         and self.output_dim % min(self.input_dim, self.output_dim) == 0)
+            group = [x for x in range(1, self.input_dim + 1)
+                     if self.input_dim % x == 0 and self.output_dim % x == 0][-1]
+            self.residual = nn.Conv2d(self.input_dim,
+                                      self.output_dim,
+                                      kernel_size=1,
+                                      stride=self.stride,
+                                      padding=0,
+                                      groups=group,
+                                      bias=False)
+
+    def _build(self, hidden_dims, kernel_sizes, expand, se_ratio):
+        _batch_norm_kwargs = self.batch_norm_kwargs \
+            if self.batch_norm_kwargs is not None else {}
+
+        hidden_dim_total = sum(hidden_dims)
+        if self.expand and hidden_dim_total:
+            # pw
+            expand_conv = ConvBNReLU(self.input_dim,
+                                     hidden_dim_total,
+                                     kernel_size=1,
+                                     batch_norm_kwargs=_batch_norm_kwargs,
+                                     active_fn=self.active_fn)
+        else:
+            expand_conv = Identity()
+
+        narrow_start = 0
+        depth_ops = nn.ModuleList()
+        for k, hidden_dim in zip(kernel_sizes, hidden_dims):
+            layers = []
+            if expand:
+                layers.append(Narrow(1, narrow_start, hidden_dim))
+                narrow_start += hidden_dim
+            else:
+                if hidden_dim != self.input_dim:
+                    raise RuntimeError('uncomment this for search_first model')
+                logging.warning(
+                    'uncomment this for previous trained search_first model')
+            layers.extend([
+                # dw
+                ConvBNReLU(hidden_dim,
+                           hidden_dim,
+                           kernel_size=k,
+                           stride=self.stride,
+                           groups=hidden_dim,
+                           batch_norm_kwargs=_batch_norm_kwargs,
+                           active_fn=self.active_fn),
+            ])
+            depth_ops.append(nn.Sequential(*layers))
+        if hidden_dim_total:
+            project_conv = nn.Sequential(
+                nn.Conv2d(hidden_dim_total, self.output_dim, 1, 1, 0, bias=False),
+                nn.BatchNorm2d(self.output_dim, **_batch_norm_kwargs))
+        else:
+            project_conv = Identity()
+
+        if expand and narrow_start != hidden_dim_total:
+            raise ValueError('Part of expanded are not used')
+
+        if se_ratio is not None:
+            se_op = SqueezeAndExcitation(hidden_dim_total,
+                                         int(round(self.input_dim * se_ratio)),
+                                         active_fn=self.active_fn)
+        else:
+            se_op = Identity()
+        return expand_conv, depth_ops, project_conv, se_op
+
+    def forward(self, x):
+        if len(self.depth_ops) == 0:
+            if not self.use_res_connect:
+                return self.residual(x)
+            else:
+                return x
+        res = self.expand_conv(x)
+        res = [op(res) for op in self.depth_ops]
+        if len(res) != 1:
+            res = torch.cat(res, dim=1)
+        else:
+            res = res[0]
+        res = self.se_op(res)
+        res = self.project_conv(res)
+        if self.use_res_connect:
+            return x + res
+        else:
+            return self.residual(x) + res
+        return res
+
+    def __repr__(self):
+        return ('{}({}, {}, channels={}, kernel_sizes={}, expand={}, stride={},'
+                ' se_ratio={})').format(self._get_name(), self.input_dim,
+                                        self.output_dim, self.channels,
+                                        self.kernel_sizes, self.expand,
+                                        self.stride, self.se_ratio)
+
 class InvertedResidualChannels(nn.Module):
     """MobiletNetV2 building block."""
 
@@ -127,7 +258,6 @@ class InvertedResidualChannels(nn.Module):
             return x + tmp
         else:
             return self.residual(x) + tmp
-        return tmp
 
     def __repr__(self):
         return ('{}({}, {}, channels={}, kernel_sizes={}, expand={},'
@@ -190,6 +320,19 @@ class Identity(nn.Module):
         return x
 
 
+class Narrow(nn.Module):
+    """Module proxy for `torch.narrow`."""
+
+    def __init__(self, dimension, start, length):
+        super(Narrow, self).__init__()
+        self.dimension = dimension
+        self.start = start
+        self.length = length
+
+    def forward(self, x):
+        return x.narrow(self.dimension, self.start, self.length)
+
+
 def get_active_fn(name):
     """Select activation function."""
     active_fn = {
@@ -197,6 +340,7 @@ def get_active_fn(name):
         'nn.ReLU': functools.partial(nn.ReLU, inplace=True),
     }[name]
     return active_fn
+
 
 def _make_divisible(v, divisor, min_value=None):
     """Make channels divisible to divisor.
@@ -424,7 +568,7 @@ class FuseModule(nn.Module):
         if only_fuse_neighbor:
             self.use_hr_format = out_branches > in_branches
             # w/o self, are two different flags. (see 1.)
-        if 1:
+        else:
             self.use_hr_format = out_branches > in_branches and \
                                  not (out_branches == 2 and in_branches == 1)  # see 4.
 
@@ -573,7 +717,7 @@ class FuseModule(nn.Module):
                         y = y + self.fuse_layers[i][j](x[j])
                     else:  # hr_format, None
                         y = y + x[j]
-                x_fuse.append(self.relu(y))  # TODO(Mingyu): Use ReLU?
+                x_fuse.append(self.relu(y))
             if self.use_hr_format:
                 for branch in range(self.in_branches, self.out_branches):
                     x_fuse.append(self.fuse_layers[branch][0](x_fuse[branch - 1]))
@@ -590,7 +734,7 @@ class FuseModule(nn.Module):
                                 y = y + self.fuse_layers[i][j](x[j])
                             else:  # hr_format, None
                                 y = y + x[j]
-                x_fuse.append(self.relu()(y))  # TODO(Mingyu): Use ReLU?
+                x_fuse.append(self.relu()(y))
             if self.use_hr_format:
                 for branch in range(self.in_branches, self.out_branches):
                     x_fuse.append(self.fuse_layers[branch][0](x_fuse[branch - 1]))
