@@ -21,6 +21,7 @@ jupyter-lab --no-browser --ip=0.0.0.0 --port=9999
 
 # US
 scp -P 9001 -r tiger@10.188.180.20:/opt/tiger/uslabcv/dingmingyu/dataset/ .
+scp -P 9001 -r tiger@10.188.180.20:/opt/tiger/uslabcv/dingmingyu/data_foru/ADEChallengeData2016.zip .
 
 # China scp -P 9001 -r tiger@10.148.57.22:/opt/tiger/uslabcv/dingmingyu/dataset/foru/ADEChallengeData2016.zip .
 scp -P 9001 -r tiger@10.130.18.85:/opt/tiger/uslabcv/dingmingyu/dataset/ .
@@ -28,6 +29,10 @@ cd foru
 unzip gtFine_trainvaltest.zip
 unzip leftImg8bit_trainvaltest.zip
 unzip ADEChallengeData2016.zip
+mkdir ade
+cd ade
+ln -s /opt/tiger/uslabcv/dingmingyu/dataset/ADEChallengeData2016 .
+
 
 git clone https://github.com/dingmyu/mmsegmentation.git
 cd mmsegmentation
