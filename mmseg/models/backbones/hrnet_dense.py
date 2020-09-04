@@ -148,6 +148,7 @@ class InvertedResidualChannelsFused(nn.Module):
                                         self.kernel_sizes, self.expand,
                                         self.stride, self.se_ratio)
 
+
 class InvertedResidualChannels(nn.Module):
     """MobiletNetV2 building block."""
 
@@ -239,7 +240,6 @@ class InvertedResidualChannels(nn.Module):
 
         return ops, pw_bn
 
-
     def forward(self, x):
         # logging.warning(
         #     'The whole block is pruned')
@@ -247,13 +247,25 @@ class InvertedResidualChannels(nn.Module):
             if not self.use_res_connect:
                 return self.residual(x)
             else:
-                token = self.Transformer(self.Tokenizer(x))
+                token = self.Transformer(self.Tokenizer(
+                    resize(
+                        input=x,
+                        size=(8, 8),
+                        mode='bilinear',
+                        align_corners=False)
+                ))
                 x = self.Projector(x, token)
                 return x
         tmp = sum([op(x) for op in self.ops])
         tmp = self.pw_bn(tmp)
         if self.use_res_connect:
-            token = self.Transformer(self.Tokenizer(x))
+            token = self.Transformer(self.Tokenizer(
+                resize(
+                    input=x,
+                    size=(8, 8),
+                    mode='bilinear',
+                    align_corners=False)
+            ))
             x = self.Projector(x, token)
             return x + tmp
         else:
@@ -463,7 +475,6 @@ def get_block_wrapper(block_str):
         raise ValueError('Unknown type of blocks.')
 
 
-
 class ParallelModule(nn.Module):
     def __init__(self,
                  num_branches=2,
@@ -542,6 +553,7 @@ class FuseModule(nn.Module):
             can be hard coded: self.use_hr_format = self.use_hr_format and not(out_branches == 2 and in_branches == 1)
         5. hrnet have a fuse layer at the end, we remove it
     '''
+
     def __init__(self,
                  in_branches=1,
                  out_branches=2,
@@ -724,14 +736,18 @@ class FuseModule(nn.Module):
         else:
             for i in range(len(self.fuse_layers) if not self.use_hr_format else self.in_branches):
                 flag = 1
-                for j in range(i-1, i+2):
+                for j in range(i - 1, i + 2):
                     if 0 <= j < self.in_branches:
                         if flag:
                             y = self.fuse_layers[i][j](x[j]) if self.fuse_layers[i][j] else x[j]  # hr_format, None
                             flag = 0
                         else:
                             if self.fuse_layers[i][j]:
-                                y = y + self.fuse_layers[i][j](x[j])
+                                y = y + resize(
+                                    self.fuse_layers[i][j](x[j]),
+                                    size=y.shape[2:],
+                                    mode='bilinear',
+                                    align_corners=False)
                             else:  # hr_format, None
                                 y = y + x[j]
                 x_fuse.append(self.relu()(y))
