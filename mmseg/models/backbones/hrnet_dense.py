@@ -17,6 +17,33 @@ checkpoint_kwparams = None
 checkpoint_kwparams = json.load(open('checkpoint.json'))
 
 
+class SqueezeAndExcitation(nn.Module):
+    """Squeeze-and-Excitation module.
+
+    See: https://arxiv.org/abs/1709.01507
+    """
+
+    def __init__(self, n_feature, n_hidden, spatial_dims=[2, 3],
+                 active_fn=None):
+        super(SqueezeAndExcitation, self).__init__()
+        self.n_feature = n_feature
+        self.n_hidden = n_hidden
+        self.spatial_dims = spatial_dims
+        self.se_reduce = nn.Conv2d(n_feature, n_hidden, 1, bias=True)
+        self.se_expand = nn.Conv2d(n_hidden, n_feature, 1, bias=True)
+        self.active_fn = active_fn()
+
+    def forward(self, x):
+        se_tensor = x.mean(self.spatial_dims, keepdim=True)
+        se_tensor = self.se_expand(self.active_fn(self.se_reduce(se_tensor)))
+        return torch.sigmoid(se_tensor) * x
+
+    def __repr__(self):
+        return '{}({}, {}, spatial_dims={}, active_fn={})'.format(
+            self._get_name(), self.n_feature, self.n_hidden, self.spatial_dims,
+            self.active_fn)
+
+
 class InvertedResidualChannelsFused(nn.Module):
     """Speedup version of `InvertedResidualChannels` by fusing small kernels.
 
