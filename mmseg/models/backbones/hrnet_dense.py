@@ -11,7 +11,7 @@ from mmseg.ops import resize
 import json
 import numpy as np
 import math
-from mmseg.models.backbones.transformers import PositionEmbeddingSine, PosEncoder, Tokenizer, Transformer, Projector
+from mmseg.models.backbones.transformer import Transformer
 
 checkpoint_kwparams = None
 checkpoint_kwparams = json.load(open('checkpoint.json'))
@@ -204,9 +204,7 @@ class InvertedResidualChannels(nn.Module):
 
         self.ops, self.pw_bn = self._build(channels, kernel_sizes, expand)
         if self.use_res_connect:
-            self.Tokenizer = Tokenizer(32, inp, inp)  # l, ct, c
-            self.Transformer = Transformer(inp)
-            self.Projector = Projector(inp, inp)
+            self.transformer = Transformer(inp // 2, inp)
 
         if not self.use_res_connect:  # TODO(Mingyu): Add this residual
             # assert (self.input_dim % min(self.input_dim, self.output_dim) == 0
@@ -274,26 +272,12 @@ class InvertedResidualChannels(nn.Module):
             if not self.use_res_connect:
                 return self.residual(x)
             else:
-                token = self.Transformer(self.Tokenizer(
-                    resize(
-                        input=x,
-                        size=(8, 8),
-                        mode='bilinear',
-                        align_corners=False)
-                ))
-                x = self.Projector(x, token)
+                x = self.transformer(x)
                 return x
         tmp = sum([op(x) for op in self.ops])
         tmp = self.pw_bn(tmp)
         if self.use_res_connect:
-            token = self.Transformer(self.Tokenizer(
-                resize(
-                    input=x,
-                    size=(8, 8),
-                    mode='bilinear',
-                    align_corners=False)
-            ))
-            x = self.Projector(x, token)
+            x = self.transformer(x)
             return x + tmp
         else:
             return self.residual(x) + tmp
