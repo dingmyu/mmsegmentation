@@ -140,7 +140,7 @@ class InvertedResidualChannelsFused(nn.Module):
         if expand and narrow_start != hidden_dim_total:
             raise ValueError('Part of expanded are not used')
 
-        if se_ratio is not None:
+        if hidden_dim_total and se_ratio is not None:
             se_op = SqueezeAndExcitation(hidden_dim_total,
                                          int(round(self.input_dim * se_ratio)),
                                          active_fn=self.active_fn)
