@@ -2,6 +2,7 @@ from abc import ABCMeta
 
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 
 
 def normal_init(module, mean=0, std=1, bias=0):
@@ -15,6 +16,14 @@ def constant_init(module, val, bias=0):
         nn.init.constant_(module.weight, val)
     if hasattr(module, 'bias') and module.bias is not None:
         nn.init.constant_(module.bias, bias)
+
+
+def resize(input,
+           size=None,
+           scale_factor=None,
+           mode='nearest',
+           align_corners=None):
+    return F.interpolate(input, size, scale_factor, mode, align_corners)
 
 
 class _NonLocalNd(nn.Module, metaclass=ABCMeta):
@@ -309,3 +318,27 @@ class NonLocal3d(_NonLocalNd):
                 self.phi = nn.Sequential(self.phi, max_pool_layer)
             else:
                 self.phi = max_pool_layer
+
+
+class ResizedNonLocal(nn.Module):
+    """2D Non-local module."""
+
+    def __init__(self, in_channels, down_sample=(8, 8)):
+        super().__init__()
+        self.non_local = NonLocal2d(in_channels)
+        self.down_sample = down_sample
+
+    def forward(self, feature):
+        batch_size, _, height, width = feature.shape
+        feature = resize(feature,
+                         self.down_sample,
+                         mode='bilinear',
+                         align_corners=False)
+
+        feature = self.non_local(feature)
+
+        feature = resize(feature,
+                         (height, width),
+                         mode='bilinear',
+                         align_corners=False)
+        return feature
