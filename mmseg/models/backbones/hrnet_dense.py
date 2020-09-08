@@ -60,7 +60,7 @@ class InvertedResidualChannelsFused(nn.Module):
                  expand,
                  active_fn=None,
                  batch_norm_kwargs=None,
-                 se_ratio=None):
+                 se_ratio=0.5):
         super(InvertedResidualChannelsFused, self).__init__()
         assert stride in [1, 2]
         assert len(channels) == len(kernel_sizes)
@@ -78,6 +78,9 @@ class InvertedResidualChannelsFused(nn.Module):
 
         (self.expand_conv, self.depth_ops, self.project_conv,
          self.se_op) = self._build(channels, kernel_sizes, expand, se_ratio)
+
+        if self.use_res_connect:
+            self.transformer = Transformer(inp // 2, inp)
 
         if not self.use_res_connect:
             # assert (self.input_dim % min(self.input_dim, self.output_dim) == 0
@@ -153,6 +156,7 @@ class InvertedResidualChannelsFused(nn.Module):
             if not self.use_res_connect:
                 return self.residual(x)
             else:
+                x = self.transformer(x)
                 return x
         res = self.expand_conv(x)
         res = [op(res) for op in self.depth_ops]
@@ -163,6 +167,7 @@ class InvertedResidualChannelsFused(nn.Module):
         res = self.se_op(res)
         res = self.project_conv(res)
         if self.use_res_connect:
+            x = self.transformer(x)
             return x + res
         else:
             return self.residual(x) + res
