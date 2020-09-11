@@ -12,6 +12,7 @@ import json
 import numpy as np
 import math
 from mmseg.models.backbones.transformer import Transformer
+from mmseg.models.backbones.transformer_token import Transformer as TransformerToken
 
 checkpoint_kwparams = None
 checkpoint_kwparams = json.load(open('checkpoint.json'))
@@ -209,7 +210,8 @@ class InvertedResidualChannels(nn.Module):
 
         self.ops, self.pw_bn = self._build(channels, kernel_sizes, expand)
         if self.use_res_connect:
-            self.transformer = Transformer(inp // 2, inp)
+            self.transformer = Transformer(8, inp)
+            # self.transformer_token = TransformerToken(8, inp)
 
         if not self.use_res_connect:  # TODO(Mingyu): Add this residual
             # assert (self.input_dim % min(self.input_dim, self.output_dim) == 0

@@ -50,4 +50,4 @@ mkdir ade
 ln -s /opt/tiger/uslabcv/dingmingyu/foru/ADEChallengeData2016 .
 
 rsync -P -e 'ssh -p 9001' -azv tiger@10.148.54.199:/opt/tiger/uslabcv/dingmingyu/mmsegmentation/output/ /Volumes/Mingyu_Research/NAS_benchmark/4xseg/
-rsync -azv * myding@10.200.127.228:/Volumes/Mingyu_Research/NAS_benchmark/seg/
+rsync -azv * myding@10.200.125.143:/Volumes/Mingyu_Research/NAS_benchmark/seg/
