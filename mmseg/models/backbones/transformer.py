@@ -71,8 +71,8 @@ class Transformer(nn.Module):
           the embedding dimension.
     """
 
-    def __init__(self, d_model, num_channels, num_heads=1, num_groups=1,
-                 down_sample=(8, 8), position_encoding='points'):
+    def __init__(self, d_model, num_channels, num_queries=None, num_heads=1, num_groups=1,
+                 down_sample=(8, 8), position_encoding='points', use_decoder=False):
         super().__init__()
 
         self.d_model = d_model
@@ -82,6 +82,7 @@ class Transformer(nn.Module):
         self.num_groups = num_groups
         self.down_sample = down_sample
         self.position_encoding = position_encoding
+        self.use_decoder = use_decoder
 
         self.reverse_proj = nn.Conv2d(self.d_model, self.num_channels, kernel_size=1)
         self.reverse_norm = nn.BatchNorm2d(self.num_channels)
@@ -89,13 +90,20 @@ class Transformer(nn.Module):
         if position_encoding == 'points':
             self.num_channels += 2
 
+        if use_decoder and num_queries is None:
+            num_queries = down_sample[0] * down_sample[1]
+
         # c -> l, get 2d attention score, It can be seen as a convolutional filter that divides
         # the feature map into various regions that corresponds to different semantic concepts.
         self.input_proj = nn.Conv2d(self.num_channels, self.d_model, kernel_size=1)
         self.input_norm = nn.BatchNorm2d(self.d_model)
 
         # Transformer Encoder
-        self.encoder = TransformerEncoderLayer(self.d_model)
+        self.encoder = TransformerEncoderLayer(self.d_model, nhead=self.num_heads)
+        if use_decoder:
+            self.query_embed = nn.Embedding(num_queries, self.d_model)
+            self.decoder = TransformerDecoderLayer(self.d_model, nhead=self.num_heads)
+
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -121,7 +129,12 @@ class Transformer(nn.Module):
         feature = self.input_norm(feature)
 
         feature = feature.flatten(2).permute(2, 0, 1)  # hw, b, l
-        memory = self.encoder(feature).view(self.down_sample + (batch_size, self.d_model)).permute(2, 3, 0, 1)
+        memory = self.encoder(feature)
+        if self.use_decoder:
+            query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, batch_size, 1)
+            memory = self.decoder(query_embed, memory)
+
+        memory = memory.view(self.down_sample + (batch_size, self.d_model)).permute(2, 3, 0, 1)
         memory = self.reverse_proj(memory)
         memory = self.reverse_norm(memory)
 
@@ -131,7 +144,6 @@ class Transformer(nn.Module):
                          align_corners=False)
 
         return feature + input
-
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -190,6 +202,41 @@ class TransformerEncoderLayer(nn.Module):
         if self.normalize_before:
             return self.forward_pre(src, src_mask, src_key_padding_mask)
         return self.forward_post(src, src_mask, src_key_padding_mask)
+
+
+class TransformerDecoderLayer(nn.Module):
+
+    def __init__(self, d_model, dim_feedforward=None, nhead=1, dropout=0.1,
+                 activation="relu"):
+        super().__init__()
+
+        if dim_feedforward is None:
+            dim_feedforward = d_model
+
+        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+
+        # Implementation of Feedforward model
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = _get_activation_fn(activation)
+
+    def forward(self, query, memory):
+        tgt = self.multihead_attn(query=query,
+                                  key=memory,
+                                  value=memory)[0]
+        tgt = query + self.dropout1(tgt)
+        tgt = self.norm1(tgt)
+        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+        tgt = tgt + self.dropout2(tgt2)
+        tgt = self.norm2(tgt)
+        return tgt
 
 
 def get_points_single(size, stride=1, dtype=np.float32):
