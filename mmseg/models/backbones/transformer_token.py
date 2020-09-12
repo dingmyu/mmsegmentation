@@ -74,7 +74,7 @@ class Transformer(nn.Module):
     """
 
     def __init__(self, num_tokens, num_channels, num_queries=None, num_heads=1, num_groups=1,
-                 down_sample=(8, 8), position_encoding='points', use_decoder=False):
+                 down_sample=(8, 8), position_encoding='points', use_decoder=True):
         super().__init__()
 
         self.num_tokens = num_tokens
