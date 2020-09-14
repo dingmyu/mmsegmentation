@@ -72,7 +72,7 @@ class Transformer(nn.Module):
     """
 
     def __init__(self, d_model, num_channels, num_queries=None, num_heads=1, num_groups=1,
-                 down_sample=(8, 8), position_encoding='points', use_decoder=False):
+                 down_sample=(8, 8), position_encoding='points', positional_decoder=True, use_decoder=True):
         super().__init__()
 
         self.d_model = d_model
@@ -83,26 +83,29 @@ class Transformer(nn.Module):
         self.down_sample = down_sample
         self.position_encoding = position_encoding
         self.use_decoder = use_decoder
-
-        self.reverse_proj = nn.Conv2d(self.d_model, self.num_channels, kernel_size=1)
-        self.reverse_norm = nn.BatchNorm2d(self.num_channels)
-
-        if position_encoding == 'points':
-            self.num_channels += 2
+        self.positional_decoder = positional_decoder
 
         if use_decoder and num_queries is None:
             num_queries = down_sample[0] * down_sample[1]
 
         # c -> l, get 2d attention score, It can be seen as a convolutional filter that divides
         # the feature map into various regions that corresponds to different semantic concepts.
-        self.input_proj = nn.Conv2d(self.num_channels, self.d_model, kernel_size=1)
+        if position_encoding == 'points':
+            self.input_proj = nn.Conv2d(self.num_channels + 2, self.d_model, kernel_size=1)
+        else:
+            self.input_proj = nn.Conv2d(self.num_channels, self.d_model, kernel_size=1)
         self.input_norm = nn.BatchNorm2d(self.d_model)
 
         # Transformer Encoder
         self.encoder = TransformerEncoderLayer(self.d_model, nhead=self.num_heads)
         if use_decoder:
             self.query_embed = nn.Embedding(num_queries, self.d_model)
+            if positional_decoder and position_encoding == 'points':
+                self.d_model += 2
             self.decoder = TransformerDecoderLayer(self.d_model, nhead=self.num_heads)
+
+        self.reverse_proj = nn.Conv2d(self.d_model, self.num_channels, kernel_size=1)
+        self.reverse_norm = nn.BatchNorm2d(self.num_channels)
 
         self._reset_parameters()
 
@@ -132,7 +135,10 @@ class Transformer(nn.Module):
         memory = self.encoder(feature)
         if self.use_decoder:
             query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, batch_size, 1)
-            memory = self.decoder(query_embed, memory)
+            if self.positional_decoder and self.position_encoding == 'points':
+                memory = self.decoder(query_embed, memory, position_embedding)
+            else:
+                memory = self.decoder(query_embed, memory)
 
         memory = memory.view(self.down_sample + (batch_size, self.d_model)).permute(2, 3, 0, 1)
         memory = self.reverse_proj(memory)
@@ -227,7 +233,11 @@ class TransformerDecoderLayer(nn.Module):
 
         self.activation = _get_activation_fn(activation)
 
-    def forward(self, query, memory):
+    def forward(self, query, memory, position_embedding=None):
+        if position_embedding is not None:
+            query = torch.cat([query, position_embedding.flatten(2).permute(2, 0, 1)], dim=2)
+            memory = torch.cat([memory, position_embedding.flatten(2).permute(2, 0, 1)], dim=2)
+
         tgt = self.multihead_attn(query=query,
                                   key=memory,
                                   value=memory)[0]
