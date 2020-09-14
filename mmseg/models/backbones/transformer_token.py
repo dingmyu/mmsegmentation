@@ -13,6 +13,36 @@ from torch import nn, Tensor
 from torch.nn import functional as F
 
 
+class MHAttentionMap(nn.Module):
+    """This is a 2D attention module, which only returns the attention softmax (no multiplication by value)"""
+
+    def __init__(self, query_dim, hidden_dim, num_heads=1, dropout=0.0, bias=True): # 100, 256, 8
+        super().__init__()
+        self.num_heads = num_heads
+        self.hidden_dim = hidden_dim
+        self.dropout = nn.Dropout(dropout)
+
+        self.q_linear = nn.Linear(query_dim, hidden_dim, bias=bias)
+        self.k_linear = nn.Linear(query_dim, hidden_dim, bias=bias)
+
+        nn.init.zeros_(self.k_linear.bias)
+        nn.init.zeros_(self.q_linear.bias)
+        nn.init.xavier_uniform_(self.k_linear.weight)
+        nn.init.xavier_uniform_(self.q_linear.weight)
+        self.normalize_fact = float(hidden_dim / self.num_heads) ** -0.5
+
+    def forward(self, q, k):
+        q = self.q_linear(q)
+        k = F.conv2d(k, self.k_linear.weight.unsqueeze(-1).unsqueeze(-1), self.k_linear.bias)
+        qh = q.view(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads)
+        kh = k.view(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads, k.shape[-2], k.shape[-1])
+        weights = torch.einsum("bqnc,bnchw->bqnhw", qh * self.normalize_fact, kh)
+
+        weights = F.softmax(weights.flatten(2), dim=-1).view_as(weights)
+        weights = self.dropout(weights)
+        return weights
+
+
 class PositionEmbeddingSine(nn.Module):
     """
     This is a more standard version of the position embedding, very similar to the one
@@ -74,7 +104,8 @@ class Transformer(nn.Module):
     """
 
     def __init__(self, num_tokens, num_channels, num_queries=None, num_heads=1, num_groups=1,
-                 down_sample=(8, 8), position_encoding='points', positional_decoder=False, use_decoder=True):
+                 down_sample=(8, 8), position_encoding='points', use_decoder=True,
+                 positional_decoder=False, attention_for_seg=False):
         super().__init__()
 
         self.num_tokens = num_tokens
@@ -86,6 +117,7 @@ class Transformer(nn.Module):
         self.position_encoding = position_encoding
         self.use_decoder = use_decoder
         self.positional_decoder = positional_decoder
+        self.attention_for_seg = attention_for_seg
 
         if use_decoder and num_queries is None:
             num_queries = self.num_tokens
@@ -108,6 +140,11 @@ class Transformer(nn.Module):
 
         self.reverse_proj = nn.Conv2d(self.num_tokens, self.num_channels, kernel_size=1)
         self.reverse_norm = nn.BatchNorm2d(self.num_channels)
+
+        if attention_for_seg:
+            self.attention = MHAttentionMap(num_queries, self.dim_tokens)
+            self.att_proj = nn.Conv2d(self.dim_tokens, num_queries, kernel_size=1)
+
 
         self._reset_parameters()
 
@@ -138,15 +175,25 @@ class Transformer(nn.Module):
         if self.use_decoder:
             query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, batch_size, 1)
             if self.positional_decoder and self.position_encoding == 'points':
-                memory = self.decoder(query_embed, memory, position_embedding)
+                feature = self.decoder(query_embed, memory, position_embedding)
             else:
-                memory = self.decoder(query_embed, memory)
+                feature = self.decoder(query_embed, memory)
+        else:
+            feature = memory
 
-        memory = memory.view((self.num_tokens, batch_size) + self.down_sample).permute(1, 0, 2, 3)
-        memory = self.reverse_proj(memory)
-        memory = self.reverse_norm(memory)
+        feature = feature.view((self.num_tokens, batch_size) + self.down_sample).permute(1, 0, 2, 3)
 
-        feature = resize(memory,
+        if self.attention_for_seg:
+            hs = feature.flatten(2).permute(0, 2, 1)
+            memory = memory.view((self.num_tokens, batch_size) + self.down_sample).permute(1, 0, 2, 3)
+            att = self.attention(hs, memory).squeeze(2)
+            att = self.att_proj(att)
+            feature = feature * att
+
+        feature = self.reverse_proj(feature)
+        feature = self.reverse_norm(feature)
+
+        feature = resize(feature,
                          (height, width),
                          mode='bilinear',
                          align_corners=False)
@@ -239,10 +286,12 @@ class TransformerDecoderLayer(nn.Module):
     def forward(self, query, memory, position_embedding=None):
         if position_embedding is not None:
             query = torch.cat([query, position_embedding.flatten(2).permute(1, 0, 2)], dim=0)
+            memory = torch.cat([memory, position_embedding.flatten(2).permute(1, 0, 2)], dim=0)
+
         tgt = self.multihead_attn(query=query,
                                   key=memory,
                                   value=memory)[0]
-        tgt = query + self.dropout1(tgt)
+        tgt = memory + self.dropout1(tgt)
         tgt = self.norm1(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout2(tgt2)
