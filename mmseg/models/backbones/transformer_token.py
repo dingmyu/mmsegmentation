@@ -308,7 +308,7 @@ def get_points_single(size, stride=1, dtype=np.float32):
     y_channel, x_channel = np.meshgrid(y_range, x_range)
     points = (np.stack((x_channel, y_channel)) + stride // 2).transpose((1, 2, 0))
     points = (points - points.mean(axis=(0, 1))) / points.std(axis=(0, 1))
-    return points.transpose((2, 0, 1))
+    return points.transpose((2, 1, 0))
 
 
 def _get_activation_fn(activation):
