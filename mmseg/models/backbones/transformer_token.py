@@ -103,9 +103,9 @@ class Transformer(nn.Module):
           the embedding dimension.
     """
 
-    def __init__(self, num_tokens, num_channels, num_queries=None, num_heads=1, num_groups=1,
+    def __init__(self, num_tokens, num_channels, output_channels=None, num_queries=None, num_heads=1, num_groups=1,
                  down_sample=(8, 8), position_encoding='points', use_decoder=True,
-                 positional_decoder=False, attention_for_seg=False):
+                 positional_decoder=False, attention_for_seg=False, downsampling=False):
         super().__init__()
 
         self.num_tokens = num_tokens
@@ -118,9 +118,15 @@ class Transformer(nn.Module):
         self.use_decoder = use_decoder
         self.positional_decoder = positional_decoder
         self.attention_for_seg = attention_for_seg
+        self.downsampling = downsampling
 
         if use_decoder and num_queries is None:
             num_queries = self.num_tokens
+
+        if output_channels is None:
+            self.output_channels = num_channels
+        else:
+            self.output_channels = output_channels
 
         # c -> l, get 2d attention score, It can be seen as a convolutional filter that divides
         # the feature map into various regions that corresponds to different semantic concepts.
@@ -138,8 +144,8 @@ class Transformer(nn.Module):
             if positional_decoder and position_encoding == 'points':
                 self.num_tokens += 2
 
-        self.reverse_proj = nn.Conv2d(self.num_tokens, self.num_channels, kernel_size=1)
-        self.reverse_norm = nn.BatchNorm2d(self.num_channels)
+        self.reverse_proj = nn.Conv2d(self.num_tokens, self.output_channels, kernel_size=1)
+        self.reverse_norm = nn.BatchNorm2d(self.output_channels)
 
         if attention_for_seg:
             self.attention = MHAttentionMap(num_queries, self.dim_tokens)
@@ -193,12 +199,18 @@ class Transformer(nn.Module):
         feature = self.reverse_proj(feature)
         feature = self.reverse_norm(feature)
 
+        if self.downsampling:
+            height = height // 2
+            width = width // 2
+
         feature = resize(feature,
                          (height, width),
                          mode='bilinear',
                          align_corners=False)
-
-        return feature + input
+        if self.downsampling or self.num_channels != self.output_channels:
+            return feature
+        else:
+            return feature + input
 
 
 
