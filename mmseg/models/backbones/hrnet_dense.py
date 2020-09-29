@@ -18,6 +18,11 @@ checkpoint_kwparams = None
 checkpoint_kwparams = json.load(open('checkpoint.json'))
 
 
+transformer_dict = None
+# transformer_dict = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 20, 28, 14, 34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 13, 37, 13]
+# transformer_dict = [20, 7, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 29, 35, 29, 1, 0, 25, 0, 0, 0, 1, 23, 30, 30, 40, 0, 37, 35, 0, 0, 0, 35, 8, 6, 0, 0, 0, 0, 0, 35, 37, 34, 34]
+
+
 class SqueezeAndExcitation(nn.Module):
     """Squeeze-and-Excitation module.
 
@@ -210,8 +215,15 @@ class InvertedResidualChannels(nn.Module):
 
         self.ops, self.pw_bn = self._build(channels, kernel_sizes, expand)
         if self.use_res_connect:
-            # self.transformer = Transformer(8, inp)
-            self.transformer = TransformerToken(8, inp)
+            if transformer_dict:
+                hidden_dims = transformer_dict[0]
+                transformer_dict.pop(0)
+                if hidden_dims:
+                    self.transformer = TransformerToken(hidden_dims, inp)
+                else:
+                    self.transformer = None
+            else:
+                self.transformer = TransformerToken(8, inp)
 
         if not self.use_res_connect:  # TODO(Mingyu): Add this residual
             # assert (self.input_dim % min(self.input_dim, self.output_dim) == 0
@@ -279,12 +291,14 @@ class InvertedResidualChannels(nn.Module):
             if not self.use_res_connect:
                 return self.residual(x)
             else:
-                x = self.transformer(x)
+                if self.transformer is not None:
+                    x = self.transformer(x)
                 return x
         tmp = sum([op(x) for op in self.ops])
         tmp = self.pw_bn(tmp)
         if self.use_res_connect:
-            x = self.transformer(x)
+            if self.transformer is not None:
+                x = self.transformer(x)
             return x + tmp
         else:
             return self.residual(x) + tmp
