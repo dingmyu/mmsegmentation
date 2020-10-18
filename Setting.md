@@ -24,7 +24,7 @@ scp -P 9001 -r tiger@10.188.180.20:/opt/tiger/uslabcv/dingmingyu/dataset/ .
 scp -P 9001 -r tiger@10.188.180.20:/opt/tiger/uslabcv/dingmingyu/data_foru/ADEChallengeData2016.zip .
 
 # China scp -P 9001 -r tiger@10.148.57.22:/opt/tiger/uslabcv/dingmingyu/dataset/foru/ADEChallengeData2016.zip .
-scp -P 9001 -r tiger@10.130.18.85:/opt/tiger/uslabcv/dingmingyu/dataset/ .
+scp -P 9001 -r tiger@10.148.57.70:/opt/tiger/uslabcv/dingmingyu/dataset/ .
 cd foru
 unzip gtFine_trainvaltest.zip
 unzip leftImg8bit_trainvaltest.zip
@@ -50,5 +50,5 @@ mkdir ade
 ln -s /opt/tiger/uslabcv/dingmingyu/foru/ADEChallengeData2016 .
 
 rsync -P -e 'ssh -p 9001' -azv tiger@10.128.102.91:/opt/tiger/uslabcv/dingmingyu/mmsegmentation/output/ /Volumes/Mingyu_Research/NAS_benchmark/4xseg/
-rsync -azv * myding@10.200.125.237:/Volumes/Mingyu_Research/NAS_benchmark/seg/
-rsync -azv * myding@10.200.125.237:/Volumes/Mingyu_Research/NAS_benchmark/4xseg/
+rsync -azv * myding@10.200.64.72:/Volumes/Mingyu_Research/NAS_benchmark/seg/
+rsync -azv * myding@10.200.64.72:/Volumes/Mingyu_Research/NAS_benchmark/4xseg/
