@@ -54,6 +54,9 @@ class BasicBlock(nn.Module):
         self.stride = stride
         self.dilation = dilation
         self.with_cp = with_cp
+        self.use_transformer = True
+        if self.use_transformer is True and downsample is None:
+            self.transformer = TransformerToken(8, inplanes)
 
     @property
     def norm1(self):
@@ -80,6 +83,9 @@ class BasicBlock(nn.Module):
 
             if self.downsample is not None:
                 identity = self.downsample(x)
+
+            if self.use_transformer is True and self.downsample is None:
+                identity = self.transformer(identity)
 
             out += identity
 
@@ -137,7 +143,7 @@ class Bottleneck(nn.Module):
         self.plugins = plugins
         self.with_plugins = plugins is not None
         self.use_transformer = True
-        if self.use_transformer == True and downsample is None:
+        if self.use_transformer is True and downsample is None:
             self.transformer = TransformerToken(8, inplanes)
 
         if self.with_plugins:
@@ -294,7 +300,7 @@ class Bottleneck(nn.Module):
             if self.downsample is not None:
                 identity = self.downsample(x)
 
-            if self.use_transformer == True and self.downsample is None:
+            if self.use_transformer is True and self.downsample is None:
                 identity = self.transformer(identity)
             out += identity
 

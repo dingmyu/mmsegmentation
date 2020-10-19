@@ -5,4 +5,5 @@
 
 #PORT=9099 ./tools/dist_train.sh  configs/cityscapes_hrnet_512x1024_40k.py 8 --work_dir ./output/hrnet_cityscapes # --resume-from ./output/hrnet_cityscapes/iter_20000.pth
 
-PORT=9099 ./tools/dist_train.sh  configs/pspnet/pspnet_r50-d8_512x1024_80k_cityscapes.py 8 --work_dir ./output/resnet_cityscapes
+PORT=9099 ./tools/dist_train.sh  configs/res50_psp_512x1024_40k.py 8 --work_dir ./output/resnet_cityscapes
+PORT=9099 ./tools/dist_train.sh  configs/res18_psp_512x1024_40k.py 8 --work_dir ./output/resnet_cityscapes
