@@ -8,6 +8,7 @@ from mmcv.utils.parrots_wrapper import _BatchNorm
 from mmseg.utils import get_root_logger
 from ..builder import BACKBONES
 from ..utils import ResLayer
+from mmseg.models.backbones.transformer_token import Transformer as TransformerToken
 
 
 class BasicBlock(nn.Module):
@@ -135,6 +136,9 @@ class Bottleneck(nn.Module):
         self.with_dcn = dcn is not None
         self.plugins = plugins
         self.with_plugins = plugins is not None
+        self.use_transformer = True
+        if self.use_transformer == True and downsample is None:
+            self.transformer = TransformerToken(8, inplanes)
 
         if self.with_plugins:
             # collect plugins for conv1/conv2/conv3
@@ -290,6 +294,8 @@ class Bottleneck(nn.Module):
             if self.downsample is not None:
                 identity = self.downsample(x)
 
+            if self.use_transformer == True and self.downsample is None:
+                identity = self.transformer(identity)
             out += identity
 
             return out
@@ -608,24 +614,31 @@ class ResNet(nn.Module):
             logger = get_root_logger()
             load_checkpoint(self, pretrained, strict=False, logger=logger)
         elif pretrained is None:
+            # for m in self.modules():
+            #     if isinstance(m, nn.Conv2d):
+            #         kaiming_init(m)
+            #     elif isinstance(m, (_BatchNorm, nn.GroupNorm)):
+            #         constant_init(m, 1)
+            #
+            # if self.dcn is not None:
+            #     for m in self.modules():
+            #         if isinstance(m, Bottleneck) and hasattr(
+            #                 m, 'conv2_offset'):
+            #             constant_init(m.conv2_offset, 0)
+            #
+            # if self.zero_init_residual:
+            #     for m in self.modules():
+            #         if isinstance(m, Bottleneck):
+            #             constant_init(m.norm3, 0)
+            #         elif isinstance(m, BasicBlock):
+            #             constant_init(m.norm2, 0)
+
             for m in self.modules():
                 if isinstance(m, nn.Conv2d):
-                    kaiming_init(m)
-                elif isinstance(m, (_BatchNorm, nn.GroupNorm)):
-                    constant_init(m, 1)
-
-            if self.dcn is not None:
-                for m in self.modules():
-                    if isinstance(m, Bottleneck) and hasattr(
-                            m, 'conv2_offset'):
-                        constant_init(m.conv2_offset, 0)
-
-            if self.zero_init_residual:
-                for m in self.modules():
-                    if isinstance(m, Bottleneck):
-                        constant_init(m.norm3, 0)
-                    elif isinstance(m, BasicBlock):
-                        constant_init(m.norm2, 0)
+                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                elif isinstance(m, nn.BatchNorm2d):
+                    nn.init.constant_(m.weight, 1)
+                    nn.init.constant_(m.bias, 0)
         else:
             raise TypeError('pretrained must be a str or None')
 
