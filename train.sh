@@ -8,3 +8,4 @@
 PORT=9099 ./tools/dist_train.sh  configs/res50_psp_512x1024_40k.py 8 --work_dir ./output/resnet_cityscapes
 PORT=9099 ./tools/dist_train.sh  configs/res18_psp_512x1024_40k.py 8 --work_dir ./output/resnet_cityscapes
 PORT=9099 ./tools/dist_train.sh  configs/shufflenet_psp_512x1024_40k.py 8 --work_dir ./output/shufflenet_cityscapes
+PORT=9199 ./tools/dist_train.sh  configs/mobilenet_psp_512x1024_40k.py 8 --work_dir ./output/mobilenetnet_cityscapes
