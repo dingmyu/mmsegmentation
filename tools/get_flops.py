@@ -15,6 +15,7 @@ def parse_args():
         nargs='+',
         default=[2048, 1024],
         help='input image size')
+    parser.add_argument('--net_params', type=str, default='')
     args = parser.parse_args()
     return args
 
@@ -32,6 +33,25 @@ def main():
 
     cfg = Config.fromfile(args.config)
     cfg.model.pretrained = None
+
+    if args.net_params:
+        tag, input_channels, block1, block2, block3, block4, last_channel = args.net_params.split('-')
+        input_channels = [int(item) for item in input_channels.split('_')]
+        block1 = [int(item) for item in block1.split('_')]
+        block2 = [int(item) for item in block2.split('_')]
+        block3 = [int(item) for item in block3.split('_')]
+        block4 = [int(item) for item in block4.split('_')]
+        last_channel = int(last_channel)
+
+        inverted_residual_setting = []
+        for item in [block1, block2, block3, block4]:
+            for _ in range(item[0]):
+                inverted_residual_setting.append([item[1], item[2:-int(len(item)/2-1)], item[-int(len(item)/2-1):]])
+
+        cfg.model.backbone.input_channel = input_channels
+        cfg.model.backbone.inverted_residual_setting = inverted_residual_setting
+        cfg.model.backbone.last_channel = last_channel
+
     model = build_segmentor(
         cfg.model, train_cfg=cfg.train_cfg, test_cfg=cfg.test_cfg).cuda()
     model.eval()
