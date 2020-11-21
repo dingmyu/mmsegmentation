@@ -2,13 +2,12 @@
 norm_cfg = dict(type='SyncBN', requires_grad=True)
 model = dict(
     type='EncoderDecoder',
-    pretrained=None,  # 'open-mmlab://msra/hrnetv2_w18',
+    pretrained=None, #'open-mmlab://msra/hrnetv2_w18',
     backbone=dict(
-        type='HighResolutionNetSync',
+        type='HighResolutionNet',
         active_fn='nn.ReLU',
-        num_classes=1000,
-        input_channel=64,
-        last_channel=2048,
+        num_classes=150,
+        input_channel=[24, 24],
         width_mult=1.0,
         round_nearest=2,
         input_stride=4,
@@ -16,19 +15,18 @@ model = dict(
         expand_ratio=4,
         kernel_sizes=[3, 5, 7],
         inverted_residual_setting=[
-            [1, [2], [64]],
-            [2, [4, 4], [18, 36]],
-            [3, [4, 4, 4], [18, 36, 72]],
-            [3, [4, 4, 4], [18, 36, 72]],
-            [3, [4, 4, 4], [18, 36, 72]],
-            [3, [4, 4, 4], [18, 36, 72]],
-            [4, [4, 4, 4, 4], [18, 36, 72, 144]],
-            [4, [4, 4, 4, 4], [18, 36, 72, 144]],
-            [4, [4, 4, 4, 4], [18, 36, 72, 144]]
+            [1, [1], [24]],
+            [2, [2, 2], [18, 36]],
+            [3, [2, 2, 3], [18, 36, 72]],
+            [4, [2, 2, 3, 4], [18, 36, 72, 144]],
+            [4, [2, 2, 3, 4], [18, 36, 72, 144]]
         ],
-        head_channels=[18, 36, 72, 144]),
+        last_channel=90,
+        fcn_head_for_seg=True,
+        block='BasicBlock',
+        head_channels=None),
     decode_head=dict(
-        type='FCNHead',
+        type='DummyHead',
         in_channels=[18, 36, 72, 144],
         in_index=(0, 1, 2, 3),
         channels=sum([18, 36, 72, 144]),
@@ -104,12 +102,12 @@ data = dict(
         pipeline=test_pipeline))
 
 # optimizer
-optimizer = dict(type='SGD', lr=0.04, momentum=0.9, weight_decay=0.0005)
+optimizer = dict(type='SGD', lr=0.1, momentum=0.9, weight_decay=0.0005)
 optimizer_config = dict()
 # learning policy
 lr_config = dict(policy='poly', power=0.9, min_lr=1e-4, by_epoch=False)
 # runtime settings
-total_iters = 80000
+total_iters = 40000
 checkpoint_config = dict(by_epoch=False, interval=10000)
 evaluation = dict(interval=10000, metric='mIoU')
 
