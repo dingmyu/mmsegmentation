@@ -754,7 +754,11 @@ class FuseModule(nn.Module):
                             flag = 0
                         else:
                             if self.fuse_layers[i][j]:
-                                y = y + self.fuse_layers[i][j](x[j])
+                                y = y + resize(
+                                    self.fuse_layers[i][j](x[j]),
+                                    size=y.shape[2:],
+                                    mode='bilinear',
+                                    align_corners=False)
                             else:  # hr_format, None
                                 y = y + x[j]
                 x_fuse.append(self.relu()(y))  # TODO(Mingyu): Use ReLU?
